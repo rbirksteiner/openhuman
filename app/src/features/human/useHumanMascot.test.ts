@@ -298,6 +298,98 @@ describe('useHumanMascot state machine', () => {
   });
 });
 
+// ── Conversational agent state machine ─────────────────────────────────────
+
+describe('useHumanMascot conversational mode', () => {
+  beforeEach(() => {
+    capturedListeners = null;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  type AgentLifecycle = 'idle' | 'connecting' | 'connected' | 'disconnected' | 'error';
+
+  function makeAgentState(opts: {
+    lifecycle: AgentLifecycle;
+    isListening?: boolean;
+    isSpeaking?: boolean;
+  }) {
+    return {
+      lifecycle: opts.lifecycle,
+      conversationId: null,
+      isListening: opts.isListening ?? false,
+      isSpeaking: opts.isSpeaking ?? false,
+      isMuted: false,
+      lastTranscript: null,
+      currentVisemeFrame: null,
+      error: null,
+    };
+  }
+
+  // Parameterized table — proves each agent snapshot maps to a stable face
+  // when voiceMode === 'conversational'. Keeping this as a single it.each
+  // makes regressions obvious in the test output: a missing case prints
+  // the offending row directly.
+  it.each([
+    ['connecting', { lifecycle: 'connecting' as const }, 'thinking'],
+    ['connected + listening', { lifecycle: 'connected' as const, isListening: true }, 'listening'],
+    ['connected + speaking', { lifecycle: 'connected' as const, isSpeaking: true }, 'speaking'],
+    ['connected + idle', { lifecycle: 'connected' as const }, 'thinking'],
+    ['disconnected', { lifecycle: 'disconnected' as const }, 'idle'],
+    ['idle', { lifecycle: 'idle' as const }, 'idle'],
+  ])('maps agent %s → face=%s', (_label, agentOpts, expectedFace) => {
+    const agentState = makeAgentState(agentOpts);
+    const { result } = renderHook(() =>
+      useHumanMascot({ voiceMode: 'conversational', agentState })
+    );
+    expect(result.current.face).toBe(expectedFace);
+  });
+
+  it('holds concerned briefly on agent error then returns to idle', () => {
+    const { result, rerender } = renderHook(
+      ({ agentState }: { agentState: ReturnType<typeof makeAgentState> }) =>
+        useHumanMascot({ voiceMode: 'conversational', agentState }),
+      { initialProps: { agentState: makeAgentState({ lifecycle: 'connected' }) } }
+    );
+    rerender({ agentState: makeAgentState({ lifecycle: 'error' }) });
+    expect(result.current.face).toBe('concerned');
+    act(() => {
+      vi.advanceTimersByTime(ACK_FACE_HOLD_MS + 1);
+    });
+    expect(result.current.face).toBe('idle');
+  });
+
+  it('does NOT run TTS playback for the legacy chat onDone path while conversational', async () => {
+    // Even with speakReplies=true, conversational mode owns the speech
+    // pipeline — the hook must skip startTtsPlayback entirely so the
+    // pre-fetched-timeline path can't double-up with the streamed visemes.
+    (synthesizeSpeech as ReturnType<typeof vi.fn>).mockReset();
+    renderHook(() =>
+      useHumanMascot({
+        speakReplies: true,
+        voiceMode: 'conversational',
+        agentState: makeAgentState({ lifecycle: 'connected' }),
+      })
+    );
+    await act(async () => {
+      capturedListeners?.onDone?.({
+        thread_id: 't',
+        request_id: 'r',
+        full_response: 'hello',
+        rounds_used: 1,
+        total_input_tokens: 1,
+        total_output_tokens: 1,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(synthesizeSpeech).not.toHaveBeenCalled();
+  });
+});
+
 describe('useHumanMascot TTS playback', () => {
   beforeEach(() => {
     capturedListeners = null;

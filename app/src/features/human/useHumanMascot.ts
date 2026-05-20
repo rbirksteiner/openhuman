@@ -7,6 +7,7 @@ import { selectEffectiveMascotVoiceId } from '../../store/mascotSlice';
 import type { MascotFace } from './Mascot';
 import { lerpViseme, VISEMES, type VisemeShape } from './Mascot/visemes';
 import { type PlaybackHandle, playBase64Audio, swallowAudioStop } from './voice/audioPlayer';
+import type { ConversationalAgentState } from './voice/conversationalAgent/types';
 import {
   proceduralVisemes,
   synthesizeSpeech,
@@ -83,6 +84,27 @@ export interface UseHumanMascotOptions {
   /** When true, force the mascot into a `listening` pose. Caller is responsible
    *  for setting this while the mic is hot (e.g. from voice dictation state). */
   listening?: boolean;
+  /**
+   * Composer mode. When `'conversational'` the hook stops driving its own
+   * TTS playback (the ElevenLabs Conversational Agent handles audio +
+   * visemes server-side) and instead reads face / mouth state from
+   * `agentState` + `agentVisemeFrame`. Default `'push-to-talk'` keeps the
+   * existing pre-fetched-timeline path intact so this change cannot
+   * regress the legacy behaviour.
+   */
+  voiceMode?: 'push-to-talk' | 'conversational';
+  /**
+   * Snapshot of the ElevenLabs Conversational Agent session. Only consulted
+   * when `voiceMode === 'conversational'`. Pass the `state` field from
+   * `useConversationalAgent`.
+   */
+  agentState?: ConversationalAgentState | null;
+  /**
+   * Live viseme frame streamed from the agent. Drives the mouth shape
+   * while `isSpeaking` is true. `null` between frames or when the agent
+   * isn't speaking.
+   */
+  agentVisemeFrame?: VisemeFrame | null;
 }
 
 export interface UseHumanMascotResult {
@@ -109,9 +131,21 @@ export interface UseHumanMascotResult {
  * to text-only behavior and surface as a brief `concerned` beat.
  */
 export function useHumanMascot(options: UseHumanMascotOptions = {}): UseHumanMascotResult {
-  const { speakReplies = false, listening = false } = options;
+  const {
+    speakReplies = false,
+    listening = false,
+    voiceMode = 'push-to-talk',
+    agentState = null,
+    agentVisemeFrame = null,
+  } = options;
   const speakRef = useRef(speakReplies);
-  speakRef.current = speakReplies;
+  // In conversational mode the agent handles audio + visemes itself, so
+  // we never want the chat-event subscriber to kick off `startTtsPlayback`.
+  // Mirroring `voiceMode` into a ref keeps the existing onDone branch
+  // free of closure-staleness even when the user toggles mid-turn.
+  speakRef.current = speakReplies && voiceMode !== 'conversational';
+  const voiceModeRef = useRef(voiceMode);
+  voiceModeRef.current = voiceMode;
 
   // Effective mascot voice id: resolves the manual override, the
   // locale-default toggle, and the build-time fallback into a single
@@ -326,6 +360,62 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): UseHumanMas
     }
   }
 
+  // ── Conversational agent → face mapping ────────────────────────────────────
+  //
+  // When `voiceMode === 'conversational'`, the chat-event subscription above
+  // is largely irrelevant — the ElevenLabs Conversational Agent drives the
+  // turn directly over its WebSocket. Translate the agent's snapshot into
+  // the existing `MascotFace` states so the visual model stays coherent.
+  // Push-to-talk mode short-circuits this effect.
+  useEffect(() => {
+    if (voiceMode !== 'conversational') return;
+    if (!agentState) return;
+    // Tear down any orphaned pre-fetched playback the moment we enter
+    // conversational mode — otherwise its `findActiveFrame` cursor would
+    // race the new streaming-viseme path and the mouth would judder.
+    if (playbackRef.current) {
+      playbackSeqRef.current++;
+      const orphan = playbackRef.current;
+      playbackRef.current = null;
+      orphan.stop();
+      orphan.ended.catch(swallowAudioStop);
+      visemeFramesRef.current = [];
+    }
+    if (agentState.lifecycle === 'connecting') {
+      clearAckTimer();
+      setFace('thinking');
+      return;
+    }
+    if (agentState.lifecycle === 'error') {
+      holdThenIdle('concerned');
+      return;
+    }
+    if (agentState.lifecycle === 'disconnected' || agentState.lifecycle === 'idle') {
+      // Don't snap mid-ack — if we just held a 'concerned' face from an
+      // error, let it finish its hold cycle.
+      if (ackTimerRef.current == null) setFace('idle');
+      return;
+    }
+    // lifecycle === 'connected' from here on.
+    if (agentState.isSpeaking) {
+      clearAckTimer();
+      setFace('speaking');
+      return;
+    }
+    if (agentState.isListening) {
+      // Highest priority while live — overrides 'thinking' below.
+      clearAckTimer();
+      setFace('listening');
+      return;
+    }
+    // Connected but neither speaking nor listening — agent is processing.
+    clearAckTimer();
+    setFace('thinking');
+    // `agentState` is a snapshot reference; the hook updates it via
+    // `useSyncExternalStore` so a new object identity each tick is the
+    // intended dep.
+  }, [voiceMode, agentState]);
+
   // RAF loop while we're speaking. TTS playback always sets face to
   // 'speaking' before awaiting the audio, so this also covers the audio-driven
   // viseme path.
@@ -342,7 +432,17 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): UseHumanMas
 
   let viseme: VisemeShape = VISEMES.REST;
   const playback = playbackRef.current;
-  if (playback) {
+  // Conversational mode owns the mouth shape via the streamed viseme frame —
+  // gate the legacy pre-fetched-timeline path so the two viseme sources can
+  // never run side-by-side.
+  if (
+    voiceMode === 'conversational' &&
+    agentState?.isSpeaking &&
+    agentVisemeFrame &&
+    typeof agentVisemeFrame.viseme === 'string'
+  ) {
+    viseme = oculusVisemeToShape(agentVisemeFrame.viseme);
+  } else if (playback && voiceMode !== 'conversational') {
     const ms = playback.currentMs();
     if (ms >= 0) {
       const { frame, cursor } = findActiveFrame(
