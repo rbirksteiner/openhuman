@@ -87,15 +87,17 @@ export class ConversationalAgentSessionManager {
   private startedAt: number | null = null;
   private turnCount = 0;
   private listeners = new Set<() => void>();
-  // Mutable per-session override sampled at connect() time. Distinct from
-  // `deps.voiceId` so the React hook can update it on every render via
-  // `setVoiceId` without having to reconstruct the manager (which would
-  // drop subscribe listeners + active conversation).
+  // Mutable per-session settings sampled at connect() time. Distinct from
+  // `deps.*` so the React hook can update them on every render via
+  // `setVoiceId` / `setAgentId` without having to reconstruct the manager
+  // (which would drop subscribe listeners + active conversation).
   private voiceIdOverride: string | undefined;
+  private agentIdOverride: string | undefined;
 
   constructor(deps: SessionManagerDeps) {
     this.deps = deps;
     this.voiceIdOverride = deps.voiceId;
+    this.agentIdOverride = deps.agentId;
   }
 
   /**
@@ -106,6 +108,16 @@ export class ConversationalAgentSessionManager {
    */
   setVoiceId(voiceId: string | undefined): void {
     this.voiceIdOverride = voiceId?.trim() || undefined;
+  }
+
+  /**
+   * Update the agent_id the next `connect()` will hand to the SDK. Same
+   * caveat as `setVoiceId`: a live session is bound to its current agent
+   * and won't migrate on the fly; user has to disconnect + reconnect.
+   * Empty / undefined → fall through to the signed-URL relay path.
+   */
+  setAgentId(agentId: string | undefined): void {
+    this.agentIdOverride = agentId?.trim() || undefined;
   }
 
   /** External-store API consumed by `useSyncExternalStore`. */
@@ -143,7 +155,7 @@ export class ConversationalAgentSessionManager {
     //   2. `fetchSignedUrl` — hits the Rust core, which in turn hits the
     //      tinyhumansai backend relay. Required for production server-issued
     //      auth + cost tracking.
-    const directAgentId = this.deps.agentId?.trim() ?? '';
+    const directAgentId = this.agentIdOverride?.trim() ?? '';
     let signed: SignedUrlResponse | null = null;
     if (!directAgentId) {
       try {

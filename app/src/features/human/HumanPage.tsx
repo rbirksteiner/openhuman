@@ -26,42 +26,47 @@ const HumanPage = () => {
   // mascot stage — that's the one that opens the WebSocket. The agent
   // state read here drives the status indicator + mascot face/mouth.
   const isConversational = voiceMode === 'conversational' || voiceMode === 'auto';
-  // Single agent instance shared between the mascot face mapper, the status
-  // pill, and the conversational composer below. Mounting the hook
-  // unconditionally is fine — the manager only opens a WebSocket on
-  // `connect()`, not on construction.
-  //
-  // Pass an explicit `agentId` so the SDK connects directly via the
-  // ElevenLabs agent's allowlisted-origin auth, bypassing the
-  // `voice_agent_get_signed_url` backend relay — that route's backend
-  // half is openhuman-afn.3 (Phase 1) and is still open. Override at
-  // build time via `VITE_OPENHUMAN_VOICE_AGENT_ID`. When the relay
-  // ships, drop this fallback and let the hook take its `undefined`
-  // path so the signed-URL flow takes over.
-  const agentId =
-    (import.meta.env.VITE_OPENHUMAN_VOICE_AGENT_ID as string | undefined)?.trim() ||
-    'agent_4801ks3631qxfe58x7wb80kha6jm';
-  // Voice override sourced from `voice_agent_config_get` so the value the
-  // user types in Settings → Voice → Conversation mode actually reaches
-  // the SDK (`overrides.tts.voiceId`). Empty `voiceId` falls back to the
-  // agent's server-side configured default voice — i.e. unset is "use
-  // whatever ElevenLabs is configured to". Polled lightly because the
-  // Settings panel is the only writer and the user has to bounce back
-  // here anyway to test changes.
+  // `agent_id` and `voice_id` are read from `voice_agent_config_get` so
+  // the values a user types in Settings → Voice → Conversation mode
+  // actually reach the SDK at session start. Priority order for the
+  // connection agent:
+  //   1. user-configured `agent_id` (Settings panel)
+  //   2. `VITE_OPENHUMAN_VOICE_AGENT_ID` build-time env override
+  //   3. hardcoded test-agent fallback (only viable while the user
+  //      hasn't yet configured their own agent in Settings)
+  // Without (1) the app silently connects to the test agent even when
+  // the user has configured their own — that mismatch was the cause
+  // of "my voice / overrides / language don't apply" because they were
+  // set on a different agent than the one being connected to.
+  const envAgentId = (
+    import.meta.env.VITE_OPENHUMAN_VOICE_AGENT_ID as string | undefined
+  )?.trim();
+  const FALLBACK_AGENT_ID = 'agent_4801ks3631qxfe58x7wb80kha6jm';
+  const [voiceAgentConfigAgentId, setVoiceAgentConfigAgentId] = useState<string | undefined>(
+    undefined
+  );
   const [voiceAgentVoiceId, setVoiceAgentVoiceId] = useState<string | undefined>(undefined);
   useEffect(() => {
     let alive = true;
     void openhumanVoiceAgentConfigGet()
       .then(cfg => {
-        if (alive) setVoiceAgentVoiceId(cfg.voice_id ?? undefined);
+        if (!alive) return;
+        const cfgAgentId = cfg.agent_id?.trim() || undefined;
+        setVoiceAgentConfigAgentId(cfgAgentId);
+        setVoiceAgentVoiceId(cfg.voice_id?.trim() || undefined);
       })
       .catch(() => {
-        // Keep undefined → agent uses server default voice.
+        // Keep undefined → fall through to env / hardcoded fallback.
       });
     return () => {
       alive = false;
     };
   }, [voiceMode]);
+  // Single agent instance shared between the mascot face mapper, the status
+  // pill, and the conversational composer below. Mounting the hook
+  // unconditionally is fine — the manager only opens a WebSocket on
+  // `connect()`, not on construction.
+  const agentId = voiceAgentConfigAgentId || envAgentId || FALLBACK_AGENT_ID;
   const agent = useConversationalAgent({ agentId, voiceId: voiceAgentVoiceId });
 
   useEffect(() => {

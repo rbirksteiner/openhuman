@@ -109,14 +109,18 @@ export function useConversationalAgent(
 
   const manager = managerRef.current;
 
-  // Keep the manager's voice override in sync with the latest prop without
-  // reconstructing the manager (which would drop subscribers + any live
-  // session). The override is only read at `connect()` time, so updating
-  // it mid-session has no effect until the next reconnect.
+  // Keep the manager's agent_id + voice override in sync with the latest
+  // props without reconstructing the manager (which would drop subscribers
+  // + any live session). Both are read at `connect()` time, so updating
+  // them mid-session has no effect until the next reconnect.
   const liveVoiceId = options.deps?.voiceId ?? options.voiceId;
+  const liveAgentId = options.deps?.agentId ?? options.agentId;
   useEffect(() => {
     manager.setVoiceId(liveVoiceId);
   }, [manager, liveVoiceId]);
+  useEffect(() => {
+    manager.setAgentId(liveAgentId);
+  }, [manager, liveAgentId]);
 
   // Tear down on unmount so a hot-reloaded page doesn't leak the WebSocket.
   useEffect(() => {
