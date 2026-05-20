@@ -87,7 +87,8 @@ describe('useConversationalAgent', () => {
     await act(async () => {
       await result.current.disconnect();
     });
-    expect(result.current.state.lifecycle).toBe('disconnected');
+    // After the no-op-when-idle guard, lifecycle stays idle.
+    expect(result.current.state.lifecycle).toBe('idle');
   });
 
   it('setMuted updates the snapshot', async () => {

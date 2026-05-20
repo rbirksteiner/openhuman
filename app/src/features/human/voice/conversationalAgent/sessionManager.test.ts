@@ -165,10 +165,12 @@ describe('ConversationalAgentSessionManager', () => {
     expect(events.filter(e => e.kind === 'connecting')).toHaveLength(1);
   });
 
-  it('disconnect without an active session still surfaces disconnected', async () => {
+  it('disconnect from idle is a no-op (stays idle, no event)', async () => {
     const { manager, events } = buildManager();
     await manager.disconnect();
-    expect(manager.state.lifecycle).toBe('disconnected');
-    expect(events.at(-1)).toMatchObject({ kind: 'disconnected' });
+    // Guards against React strict-mode's double-mount cleanup flipping the
+    // user-visible status from `idle` to `disconnected` before any click.
+    expect(manager.state.lifecycle).toBe('idle');
+    expect(events).toHaveLength(0);
   });
 });

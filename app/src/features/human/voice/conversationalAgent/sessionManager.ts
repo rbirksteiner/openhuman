@@ -209,6 +209,12 @@ export class ConversationalAgentSessionManager {
 
   /** Cleanly end the session. Safe to call from any state. */
   async disconnect(): Promise<void> {
+    // No-op when the manager has never connected. Without this guard, React
+    // strict-mode's double-mount cleanup flips the UI from `idle` → `disconnected`
+    // before the user has done anything, which made the button label lie.
+    if (this.snapshot.lifecycle === 'idle' && this.conv === null) {
+      return;
+    }
     const conv = this.conv;
     this.conv = null;
     if (!conv) {
