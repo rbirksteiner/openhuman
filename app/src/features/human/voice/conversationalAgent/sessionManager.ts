@@ -58,6 +58,14 @@ export interface SessionManagerDeps {
    */
   agentId?: string;
   /**
+   * Per-session voice id override forwarded to the SDK as
+   * `overrides.tts.voiceId`. The ElevenLabs agent must have
+   * `platform_settings.overrides.conversation_config_override.tts.voice_id`
+   * enabled server-side or this is silently ignored. Empty / undefined →
+   * use the agent's server-configured default voice.
+   */
+  voiceId?: string;
+  /**
    * Side-channel for typed events. The React hook folds these into snapshot
    * state via `useSyncExternalStore`.
    */
@@ -79,9 +87,25 @@ export class ConversationalAgentSessionManager {
   private startedAt: number | null = null;
   private turnCount = 0;
   private listeners = new Set<() => void>();
+  // Mutable per-session override sampled at connect() time. Distinct from
+  // `deps.voiceId` so the React hook can update it on every render via
+  // `setVoiceId` without having to reconstruct the manager (which would
+  // drop subscribe listeners + active conversation).
+  private voiceIdOverride: string | undefined;
 
   constructor(deps: SessionManagerDeps) {
     this.deps = deps;
+    this.voiceIdOverride = deps.voiceId;
+  }
+
+  /**
+   * Update the voice override that the next `connect()` will send to the
+   * SDK as `overrides.tts.voiceId`. Calling this while a session is already
+   * live does NOT re-stream with the new voice — ElevenLabs binds the
+   * voice at session start. Disconnect + reconnect to apply.
+   */
+  setVoiceId(voiceId: string | undefined): void {
+    this.voiceIdOverride = voiceId?.trim() || undefined;
   }
 
   /** External-store API consumed by `useSyncExternalStore`. */
@@ -139,6 +163,20 @@ export class ConversationalAgentSessionManager {
     const sdkOptions: Record<string, unknown> = directAgentId
       ? { agentId: directAgentId }
       : { signedUrl: signed!.signedUrl };
+    // Per-session voice override. Only attached when the caller provided a
+    // non-empty `voiceId`, so an unset config keeps the agent's
+    // server-configured default. ElevenLabs requires the override to be
+    // explicitly allowlisted on the agent definition; if it isn't, the SDK
+    // silently drops this key and uses the default voice — which is the
+    // failure mode that first surfaced this missing wiring (#openhuman-afn.6).
+    const voiceId = this.voiceIdOverride?.trim();
+    if (voiceId) {
+      sdkOptions.overrides = {
+        ...((sdkOptions.overrides as Record<string, unknown> | undefined) ?? {}),
+        tts: { voiceId },
+      };
+      log('[voice-agent] connect with voice override voice_id=%s', voiceId);
+    }
     try {
       this.conv = await start({
         ...(sdkOptions as Parameters<(typeof Conversation)['startSession']>[0]),

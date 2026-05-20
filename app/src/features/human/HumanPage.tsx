@@ -4,6 +4,7 @@ import { useT } from '../../lib/i18n/I18nContext';
 import Conversations from '../../pages/Conversations';
 import { useAppSelector } from '../../store/hooks';
 import { selectMascotColor, selectVoiceMode } from '../../store/mascotSlice';
+import { openhumanVoiceAgentConfigGet } from '../../utils/tauriCommands/voice';
 import { ConversationStatusIndicator } from './ConversationStatusIndicator';
 import { YellowMascot } from './Mascot';
 import { MicComposer } from './MicComposer';
@@ -29,7 +30,39 @@ const HumanPage = () => {
   // pill, and the conversational composer below. Mounting the hook
   // unconditionally is fine — the manager only opens a WebSocket on
   // `connect()`, not on construction.
-  const agent = useConversationalAgent({});
+  //
+  // Pass an explicit `agentId` so the SDK connects directly via the
+  // ElevenLabs agent's allowlisted-origin auth, bypassing the
+  // `voice_agent_get_signed_url` backend relay — that route's backend
+  // half is openhuman-afn.3 (Phase 1) and is still open. Override at
+  // build time via `VITE_OPENHUMAN_VOICE_AGENT_ID`. When the relay
+  // ships, drop this fallback and let the hook take its `undefined`
+  // path so the signed-URL flow takes over.
+  const agentId =
+    (import.meta.env.VITE_OPENHUMAN_VOICE_AGENT_ID as string | undefined)?.trim() ||
+    'agent_4801ks3631qxfe58x7wb80kha6jm';
+  // Voice override sourced from `voice_agent_config_get` so the value the
+  // user types in Settings → Voice → Conversation mode actually reaches
+  // the SDK (`overrides.tts.voiceId`). Empty `voiceId` falls back to the
+  // agent's server-side configured default voice — i.e. unset is "use
+  // whatever ElevenLabs is configured to". Polled lightly because the
+  // Settings panel is the only writer and the user has to bounce back
+  // here anyway to test changes.
+  const [voiceAgentVoiceId, setVoiceAgentVoiceId] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    void openhumanVoiceAgentConfigGet()
+      .then(cfg => {
+        if (alive) setVoiceAgentVoiceId(cfg.voice_id ?? undefined);
+      })
+      .catch(() => {
+        // Keep undefined → agent uses server default voice.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [voiceMode]);
+  const agent = useConversationalAgent({ agentId, voiceId: voiceAgentVoiceId });
 
   useEffect(() => {
     window.localStorage.setItem(SPEAK_REPLIES_KEY, speakReplies ? '1' : '0');
@@ -68,8 +101,8 @@ const HumanPage = () => {
           <YellowMascot face={face} mascotColor={mascotColor} />
         </div>
         {/* Conversational mic — sits under the mascot when voice mode is on.
-            Pass agentId={undefined} so the hook uses the backend signed-URL
-            relay (config-driven) rather than the build-time fallback. */}
+            The shared `agent` (with build-time-fallback agent_id) handles
+            connect/disconnect; this composer just renders the power UI. */}
         {isConversational && (
           <div className="mt-2 z-10">
             <MicComposer

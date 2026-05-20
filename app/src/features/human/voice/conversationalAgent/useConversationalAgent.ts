@@ -48,6 +48,13 @@ export interface UseConversationalAgentOptions {
    */
   agentId?: string;
   /**
+   * Per-session voice override forwarded to the SDK as
+   * `overrides.tts.voiceId`. Sourced from `voice_agent_config_get` (the
+   * Voice ID a user types in Settings → Voice → Conversation mode).
+   * Requires the agent definition to allowlist the override server-side.
+   */
+  voiceId?: string;
+  /**
    * Test-only: inject a fully-formed deps bag. In production callers should
    * leave this undefined; the hook constructs the manager with the real
    * RPC client + SDK.
@@ -94,12 +101,22 @@ export function useConversationalAgent(
     managerRef.current = new ConversationalAgentSessionManager({
       fetchSignedUrl,
       agentId: options.deps?.agentId ?? options.agentId,
+      voiceId: options.deps?.voiceId ?? options.voiceId,
       onEvent,
       startSession: options.deps?.startSession,
     });
   }
 
   const manager = managerRef.current;
+
+  // Keep the manager's voice override in sync with the latest prop without
+  // reconstructing the manager (which would drop subscribers + any live
+  // session). The override is only read at `connect()` time, so updating
+  // it mid-session has no effect until the next reconnect.
+  const liveVoiceId = options.deps?.voiceId ?? options.voiceId;
+  useEffect(() => {
+    manager.setVoiceId(liveVoiceId);
+  }, [manager, liveVoiceId]);
 
   // Tear down on unmount so a hot-reloaded page doesn't leak the WebSocket.
   useEffect(() => {
