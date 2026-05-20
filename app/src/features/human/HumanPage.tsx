@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useT } from '../../lib/i18n/I18nContext';
 import Conversations from '../../pages/Conversations';
@@ -9,6 +9,7 @@ import { ConversationStatusIndicator } from './ConversationStatusIndicator';
 import { YellowMascot } from './Mascot';
 import { MicComposer } from './MicComposer';
 import { useHumanMascot } from './useHumanMascot';
+import { buildClientTools, voiceThreadIdFor } from './voice/conversationalAgent/clientTools';
 import { useConversationalAgent } from './voice/conversationalAgent/useConversationalAgent';
 
 const SPEAK_REPLIES_KEY = 'human.speakReplies';
@@ -67,7 +68,21 @@ const HumanPage = () => {
   // unconditionally is fine — the manager only opens a WebSocket on
   // `connect()`, not on construction.
   const agentId = voiceAgentConfigAgentId || envAgentId || FALLBACK_AGENT_ID;
-  const agent = useConversationalAgent({ agentId, voiceId: voiceAgentVoiceId });
+  // Stable per-mount voice thread id. The agent's `conversationId` only
+  // becomes known after `onConnect`, so we can't seed from it without a
+  // re-render storm; instead we generate once and reuse for every tool
+  // call in the lifetime of this page. The thread is voice-scoped so it
+  // never collides with the user's text chat history.
+  const [voiceThreadId] = useState(() => voiceThreadIdFor(null));
+  const clientTools = useMemo(
+    () => buildClientTools({ threadId: voiceThreadId }),
+    [voiceThreadId]
+  );
+  const agent = useConversationalAgent({
+    agentId,
+    voiceId: voiceAgentVoiceId,
+    clientTools,
+  });
 
   useEffect(() => {
     window.localStorage.setItem(SPEAK_REPLIES_KEY, speakReplies ? '1' : '0');
@@ -95,8 +110,15 @@ const HumanPage = () => {
 
       {/* Conversation status pill — top-center, only while voice mode is on. */}
       {isConversational && (
-        <div className="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 z-20">
+        <div className="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1">
           <ConversationStatusIndicator state={agent.state} />
+          {/* Diagnostic: surfaces which agent + voice override the SDK is
+              actually being driven with. Remove once Phase 6 hardening
+              lands an in-app debug overlay. */}
+          <div className="rounded-full bg-white/85 dark:bg-neutral-900/85 backdrop-blur-md border border-stone-300 dark:border-neutral-700 px-2 py-0.5 text-[10px] font-mono text-stone-600 dark:text-neutral-400 max-w-[420px] truncate">
+            agent={agentId.slice(0, 22)}… · voice=
+            {voiceAgentVoiceId ? voiceAgentVoiceId.slice(0, 12) + '…' : '(default)'}
+          </div>
         </div>
       )}
 

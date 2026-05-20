@@ -74,6 +74,10 @@ vi.mock('../../store/hooks', () => ({
 }));
 
 vi.mock('../../store/mascotSlice', () => ({
+  // `default` is the slice reducer. Including a no-op stub keeps store/index.ts
+  // happy when other transitive imports (e.g. chatService -> socketService) load
+  // it during the test.
+  default: (s: unknown = null) => s,
   selectMascotColor: (s: { mascot: { color: string } }) => s.mascot.color,
   selectVoiceMode: (s: { mascot: { voiceMode: string } }) => s.mascot.voiceMode,
 }));
