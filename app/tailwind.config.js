@@ -54,6 +54,22 @@ module.exports = {
           300: '#D4D4D4',   // Hover states
         },
 
+        // Ocean - Brand primary (#4A83DD per CLAUDE.md). Used for voice mode
+        // CTAs, intelligence panels, and other primary-action surfaces.
+        ocean: {
+          50: '#EFF4FC',
+          100: '#DCE6F7',
+          200: '#BDD0EF',
+          300: '#8FB0E5',
+          400: '#6B97DF',
+          500: '#4A83DD',
+          600: '#3A6BC4',
+          700: '#2E55A0',
+          800: '#284881',
+          900: '#233D6A',
+          950: '#152544',
+        },
+
         // Primary - Complementary blue from Figma
         primary: {
           50: '#EFF6FF',
