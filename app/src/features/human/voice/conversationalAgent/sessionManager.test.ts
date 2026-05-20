@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  ConversationalAgentSessionManager,
-  type SessionManagerDeps,
-} from './sessionManager';
+
+import { ConversationalAgentSessionManager, type SessionManagerDeps } from './sessionManager';
 import type { AgentEvent, SignedUrlResponse } from './types';
 
 interface FakeConversation {
@@ -47,7 +45,7 @@ function makeFakeSdk(): {
 
 function buildManager(
   override: Partial<SessionManagerDeps> = {},
-  signedUrl: SignedUrlResponse = { signedUrl: 'wss://test', expiresAt: 9999999 },
+  signedUrl: SignedUrlResponse = { signedUrl: 'wss://test', expiresAt: 9999999 }
 ): {
   manager: ConversationalAgentSessionManager;
   events: AgentEvent[];
@@ -57,7 +55,7 @@ function buildManager(
   const sdk = makeFakeSdk();
   const manager = new ConversationalAgentSessionManager({
     fetchSignedUrl: override.fetchSignedUrl ?? (async () => signedUrl),
-    onEvent: override.onEvent ?? ((e) => events.push(e)),
+    onEvent: override.onEvent ?? (e => events.push(e)),
     startSession: (override.startSession ?? sdk.startSession) as never,
   });
   return { manager, events, sdk };
@@ -78,7 +76,7 @@ describe('ConversationalAgentSessionManager', () => {
     // SDK onConnect callback fires when the session is "live"
     sdk.lastConversation()!.callbacks.onConnect?.({ conversationId: 'conv-1' });
 
-    expect(events.map((e) => e.kind)).toEqual(['connecting', 'connected']);
+    expect(events.map(e => e.kind)).toEqual(['connecting', 'connected']);
     expect(manager.state.lifecycle).toBe('connected');
     expect(manager.state.conversationId).toBe('conv-1');
   });
@@ -92,7 +90,7 @@ describe('ConversationalAgentSessionManager', () => {
     await manager.connect();
     expect(manager.state.lifecycle).toBe('error');
     expect(manager.state.error).toBe('backend 401');
-    expect(events.some((e) => e.kind === 'error')).toBe(true);
+    expect(events.some(e => e.kind === 'error')).toBe(true);
   });
 
   it('publishes error event when SDK startSession throws', async () => {
@@ -113,7 +111,7 @@ describe('ConversationalAgentSessionManager', () => {
     await manager.disconnect();
     // Either onDisconnect callback already fired (via the fake) or our fallback path emitted.
     expect(manager.state.lifecycle).toBe('disconnected');
-    expect(events.some((e) => e.kind === 'disconnected')).toBe(true);
+    expect(events.some(e => e.kind === 'disconnected')).toBe(true);
   });
 
   it('forwards SDK message events as typed transcripts and counts user turns', async () => {
@@ -125,7 +123,7 @@ describe('ConversationalAgentSessionManager', () => {
     cb.onMessage?.({ message: 'hi there', source: 'ai' });
 
     const transcripts = events.filter(
-      (e): e is Extract<AgentEvent, { kind: 'transcript' }> => e.kind === 'transcript',
+      (e): e is Extract<AgentEvent, { kind: 'transcript' }> => e.kind === 'transcript'
     );
     expect(transcripts).toHaveLength(2);
     expect(transcripts[0]).toMatchObject({ text: 'hello', role: 'user', isFinal: true });
@@ -144,8 +142,8 @@ describe('ConversationalAgentSessionManager', () => {
     cb.onModeChange?.({ mode: 'listening' });
     expect(manager.state.isSpeaking).toBe(false);
     expect(manager.state.isListening).toBe(true);
-    expect(events.filter((e) => e.kind === 'agent_speech_started')).toHaveLength(1);
-    expect(events.filter((e) => e.kind === 'agent_speech_ended')).toHaveLength(1);
+    expect(events.filter(e => e.kind === 'agent_speech_started')).toHaveLength(1);
+    expect(events.filter(e => e.kind === 'agent_speech_ended')).toHaveLength(1);
   });
 
   it('setMuted forwards to SDK and is idempotent', async () => {
@@ -157,14 +155,14 @@ describe('ConversationalAgentSessionManager', () => {
     // Second call with same value should not double-emit
     manager.setMuted(true);
     expect(sdk.lastConversation()!.setMicMuted).toHaveBeenCalledTimes(1);
-    expect(events.filter((e) => e.kind === 'mute_changed')).toHaveLength(1);
+    expect(events.filter(e => e.kind === 'mute_changed')).toHaveLength(1);
   });
 
   it('idempotent connect: second call while connecting/connected is a no-op', async () => {
     const { manager, events } = buildManager();
     await manager.connect();
     await manager.connect();
-    expect(events.filter((e) => e.kind === 'connecting')).toHaveLength(1);
+    expect(events.filter(e => e.kind === 'connecting')).toHaveLength(1);
   });
 
   it('disconnect without an active session still surfaces disconnected', async () => {

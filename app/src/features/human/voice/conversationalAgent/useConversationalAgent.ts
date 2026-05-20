@@ -1,17 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import debug from 'debug';
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 
 import { callCoreRpc } from '../../../../services/coreRpcClient';
 import type { VisemeFrame } from '../ttsClient';
-import {
-  ConversationalAgentSessionManager,
-  type SessionManagerDeps,
-} from './sessionManager';
-import type {
-  AgentEvent,
-  ConversationalAgentState,
-  SignedUrlResponse,
-} from './types';
+import { ConversationalAgentSessionManager, type SessionManagerDeps } from './sessionManager';
+import type { AgentEvent, ConversationalAgentState, SignedUrlResponse } from './types';
 
 const log = debug('openhuman:voice-agent:hook');
 
@@ -76,18 +69,19 @@ export interface UseConversationalAgentResult {
  * straight to `onClick` without `useCallback` gymnastics.
  */
 export function useConversationalAgent(
-  options: UseConversationalAgentOptions = {},
+  options: UseConversationalAgentOptions = {}
 ): UseConversationalAgentResult {
   // Manager survives re-renders; ref makes that explicit.
   const managerRef = useRef<ConversationalAgentSessionManager | null>(null);
 
   if (managerRef.current === null) {
-    const fetchSignedUrl =
-      options.deps?.fetchSignedUrl ?? defaultFetchSignedUrl;
-    const onEvent = options.deps?.onEvent ?? ((event: AgentEvent) => {
-      // Default sink: trace-log for diagnosis. Phase 7 wires Sentry breadcrumbs.
-      log('[voice-agent] event: %s', event.kind);
-    });
+    const fetchSignedUrl = options.deps?.fetchSignedUrl ?? defaultFetchSignedUrl;
+    const onEvent =
+      options.deps?.onEvent ??
+      ((event: AgentEvent) => {
+        // Default sink: trace-log for diagnosis. Phase 7 wires Sentry breadcrumbs.
+        log('[voice-agent] event: %s', event.kind);
+      });
     managerRef.current = new ConversationalAgentSessionManager({
       fetchSignedUrl,
       onEvent,
@@ -124,6 +118,6 @@ export function useConversationalAgent(
       error: state.error,
       conversationId: state.conversationId,
     }),
-    [state, connect, disconnect, setMuted],
+    [state, connect, disconnect, setMuted]
   );
 }

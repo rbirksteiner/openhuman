@@ -1,12 +1,9 @@
-import debug from 'debug';
 import * as Sentry from '@sentry/react';
 import { Conversation } from '@elevenlabs/client';
-import type {
-  AgentEvent,
-  ConversationalAgentState,
-  SignedUrlResponse,
-} from './types';
-import { INITIAL_CONVERSATIONAL_AGENT_STATE, DISCONNECT_REASON } from './types';
+import debug from 'debug';
+
+import type { AgentEvent, ConversationalAgentState, SignedUrlResponse } from './types';
+import { DISCONNECT_REASON, INITIAL_CONVERSATIONAL_AGENT_STATE } from './types';
 
 const log = debug('openhuman:voice-agent:session');
 
@@ -18,12 +15,7 @@ const log = debug('openhuman:voice-agent:session');
  */
 function addBreadcrumb(message: string, data: Record<string, unknown> = {}): void {
   try {
-    Sentry.addBreadcrumb({
-      category: 'voice-agent',
-      level: 'info',
-      message,
-      data,
-    });
+    Sentry.addBreadcrumb({ category: 'voice-agent', level: 'info', message, data });
   } catch {
     /* Sentry not initialized in tests — swallow */
   }
@@ -137,8 +129,8 @@ export class ConversationalAgentSessionManager {
             details.reason === 'user'
               ? DISCONNECT_REASON.USER_CLOSED
               : details.reason === 'error'
-              ? DISCONNECT_REASON.ERROR
-              : DISCONNECT_REASON.EXPIRED;
+                ? DISCONNECT_REASON.ERROR
+                : DISCONNECT_REASON.EXPIRED;
           this.updateSnapshot({
             lifecycle: 'disconnected',
             isListening: false,
@@ -161,9 +153,7 @@ export class ConversationalAgentSessionManager {
         onMessage: ({ message, source }: { message: string; source: 'user' | 'ai' }) => {
           const role: 'user' | 'agent' = source === 'ai' ? 'agent' : 'user';
           if (role === 'user') this.turnCount += 1;
-          this.updateSnapshot({
-            lastTranscript: { text: message, role, isFinal: true },
-          });
+          this.updateSnapshot({ lastTranscript: { text: message, role, isFinal: true } });
           this.emit({ kind: 'transcript', text: message, isFinal: true, role });
         },
         onModeChange: ({ mode }: { mode: 'speaking' | 'listening' }) => {

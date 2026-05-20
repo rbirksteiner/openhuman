@@ -1,7 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { useConversationalAgent } from './useConversationalAgent';
+
 import type { AgentEvent, SignedUrlResponse } from './types';
+import { useConversationalAgent } from './useConversationalAgent';
 
 interface FakeConv {
   endSession: ReturnType<typeof vi.fn>;
@@ -9,7 +10,10 @@ interface FakeConv {
   _onConnect?: (p: { conversationId: string }) => void;
 }
 
-function makeStubSdk(): { startSession: (opts: Record<string, unknown>) => Promise<FakeConv>; getLast: () => FakeConv | null } {
+function makeStubSdk(): {
+  startSession: (opts: Record<string, unknown>) => Promise<FakeConv>;
+  getLast: () => FakeConv | null;
+} {
   let last: FakeConv | null = null;
   return {
     async startSession(opts) {
@@ -38,7 +42,7 @@ describe('useConversationalAgent', () => {
           onEvent: () => {},
           startSession: stub.startSession as never,
         },
-      }),
+      })
     );
     expect(result.current.state.lifecycle).toBe('idle');
     expect(result.current.isMuted).toBe(false);
@@ -52,10 +56,10 @@ describe('useConversationalAgent', () => {
       useConversationalAgent({
         deps: {
           fetchSignedUrl: async () => ({ signedUrl: 'wss://x', expiresAt: 1 }),
-          onEvent: (e) => events.push(e),
+          onEvent: e => events.push(e),
           startSession: stub.startSession as never,
         },
-      }),
+      })
     );
     await act(async () => {
       await result.current.connect();
@@ -66,7 +70,7 @@ describe('useConversationalAgent', () => {
     });
     await waitFor(() => expect(result.current.state.lifecycle).toBe('connected'));
     expect(result.current.conversationId).toBe('c1');
-    expect(events.map((e) => e.kind)).toEqual(['connecting', 'connected']);
+    expect(events.map(e => e.kind)).toEqual(['connecting', 'connected']);
   });
 
   it('disconnect from idle still resolves cleanly', async () => {
@@ -78,7 +82,7 @@ describe('useConversationalAgent', () => {
           onEvent: () => {},
           startSession: stub.startSession as never,
         },
-      }),
+      })
     );
     await act(async () => {
       await result.current.disconnect();
@@ -95,7 +99,7 @@ describe('useConversationalAgent', () => {
           onEvent: () => {},
           startSession: stub.startSession as never,
         },
-      }),
+      })
     );
     await act(async () => {
       await result.current.connect();

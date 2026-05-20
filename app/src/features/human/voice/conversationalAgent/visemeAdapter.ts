@@ -81,9 +81,5 @@ export function tryAdaptVisemeFrame(input: MaybeVisemeInput): VisemeFrame | null
 
   const startMs = Math.max(0, Math.trunc(input.timestampMs ?? 0));
   const durationMs = Math.max(1, Math.trunc(input.durationMs ?? 80));
-  return {
-    viseme: visemeCode,
-    start_ms: startMs,
-    end_ms: startMs + durationMs,
-  };
+  return { viseme: visemeCode, start_ms: startMs, end_ms: startMs + durationMs };
 }

@@ -1,7 +1,4 @@
-export {
-  ConversationalAgentSessionManager,
-  type SessionManagerDeps,
-} from './sessionManager';
+export { ConversationalAgentSessionManager, type SessionManagerDeps } from './sessionManager';
 export {
   useConversationalAgent,
   type UseConversationalAgentOptions,
@@ -16,8 +13,4 @@ export {
   DISCONNECT_REASON,
   INITIAL_CONVERSATIONAL_AGENT_STATE,
 } from './types';
-export {
-  OCULUS_VISEME_BY_ID,
-  tryAdaptVisemeFrame,
-  type MaybeVisemeInput,
-} from './visemeAdapter';
+export { OCULUS_VISEME_BY_ID, tryAdaptVisemeFrame, type MaybeVisemeInput } from './visemeAdapter';
