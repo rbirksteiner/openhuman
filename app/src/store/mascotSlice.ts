@@ -23,6 +23,33 @@ export const DEFAULT_MASCOT_COLOR: MascotColor = 'yellow';
 export type MascotVoiceGender = 'male' | 'female';
 
 /**
+ * Push-to-talk vs. continuous conversation mode for the Human page mic
+ * composer. Persisted so the user's preference survives restarts.
+ *
+ * - `push-to-talk` — default. MediaRecorder records, sends to STT RPC, the
+ *   transcript is shipped through the existing send pipeline.
+ * - `conversational` — opens an ElevenLabs Conversational Agent WebSocket,
+ *   real-time full-duplex audio.
+ * - `auto` — UI surfaces this option, but today it behaves the same as
+ *   `conversational` (with a future graceful fallback to push-to-talk
+ *   when the agent can't be reached). Treat as conversational at the call
+ *   site for now.
+ */
+export type VoiceMode = 'push-to-talk' | 'conversational' | 'auto';
+
+export const SUPPORTED_VOICE_MODES: readonly VoiceMode[] = [
+  'push-to-talk',
+  'conversational',
+  'auto',
+];
+
+export const DEFAULT_VOICE_MODE: VoiceMode = 'push-to-talk';
+
+function isVoiceMode(value: unknown): value is VoiceMode {
+  return typeof value === 'string' && (SUPPORTED_VOICE_MODES as readonly string[]).includes(value);
+}
+
+/**
  * Default gender for the mascot's reply voice. Matches the default
  * voice id (`MASCOT_VOICE_ID` — George, a male multilingual ElevenLabs
  * voice) so new users see consistent state in the Mascot settings
@@ -96,6 +123,14 @@ export interface MascotState {
    * persisted blob bounded.
    */
   selectedMascotId: string | null;
+  /**
+   * User-selected voice mode for the Human page composer. See
+   * `VoiceMode` for the lifecycle. Persisted so flipping into
+   * conversational mode survives restarts. Defaults to push-to-talk —
+   * the existing MediaRecorder flow — so this slice change cannot
+   * regress the legacy mic UX on first install.
+   */
+  voiceMode: VoiceMode;
 }
 
 const initialState: MascotState = {
@@ -104,6 +139,7 @@ const initialState: MascotState = {
   voiceGender: DEFAULT_MASCOT_VOICE_GENDER,
   voiceUseLocaleDefault: false,
   selectedMascotId: null,
+  voiceMode: DEFAULT_VOICE_MODE,
 };
 
 function isMascotColor(value: unknown): value is MascotColor {
@@ -164,6 +200,15 @@ const mascotSlice = createSlice({
     setMascotVoiceUseLocaleDefault(state, action: PayloadAction<boolean>) {
       state.voiceUseLocaleDefault = Boolean(action.payload);
     },
+    /**
+     * Switch the Human page mic composer between push-to-talk and
+     * continuous conversation modes. Unknown values are scrubbed back
+     * to the safe default so corrupted persisted blobs cannot poison
+     * the composer branch select.
+     */
+    setVoiceMode(state, action: PayloadAction<VoiceMode>) {
+      state.voiceMode = isVoiceMode(action.payload) ? action.payload : DEFAULT_VOICE_MODE;
+    },
   },
   extraReducers: builder => {
     builder.addCase(resetUserScopedState, () => initialState);
@@ -179,6 +224,7 @@ const mascotSlice = createSlice({
           voiceGender?: unknown;
           voiceUseLocaleDefault?: unknown;
           selectedMascotId?: unknown;
+          voiceMode?: unknown;
         };
       };
       if (rehydrateAction.key !== 'mascot') return;
@@ -210,6 +256,11 @@ const mascotSlice = createSlice({
         typeof rehydrateAction.payload?.voiceUseLocaleDefault === 'boolean'
           ? rehydrateAction.payload.voiceUseLocaleDefault
           : false;
+      // Scrub unknown voice modes back to the push-to-talk default so a
+      // future build that drops the `auto` variant cannot leave the
+      // composer in an unselectable state on rehydrate.
+      const restoredVoiceMode = rehydrateAction.payload?.voiceMode;
+      state.voiceMode = isVoiceMode(restoredVoiceMode) ? restoredVoiceMode : DEFAULT_VOICE_MODE;
     });
   },
 });
@@ -220,6 +271,7 @@ export const {
   setMascotVoiceGender,
   setMascotVoiceUseLocaleDefault,
   setSelectedMascotId,
+  setVoiceMode,
 } = mascotSlice.actions;
 
 export const selectMascotColor = (state: { mascot: MascotState }): MascotColor =>
@@ -236,6 +288,9 @@ export const selectMascotVoiceUseLocaleDefault = (state: { mascot: MascotState }
 
 export const selectSelectedMascotId = (state: { mascot: MascotState }): string | null =>
   state.mascot.selectedMascotId;
+
+export const selectVoiceMode = (state: { mascot: MascotState }): VoiceMode =>
+  state.mascot.voiceMode;
 
 /**
  * Resolve the voice id the next reply will be synthesised with, taking

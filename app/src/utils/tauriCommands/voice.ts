@@ -220,6 +220,66 @@ export const notifyOverlaySttState = (
   })();
 };
 
+// ── Voice Agent (ElevenLabs Conversational Agent) ────────────────────────────
+
+/**
+ * Wire shape returned by `openhuman.voice_agent_config_get`. Mirrors the Rust
+ * `VoiceAgentConfigGetOutput` struct in `src/openhuman/voice_agent/types.rs`.
+ * `agent_id` / `voice_id` may be `null` when the user hasn't configured an
+ * override yet — the backend then falls back to its env-var defaults.
+ */
+export interface VoiceAgentConfigGetOutput {
+  enabled: boolean;
+  agent_id: string | null;
+  voice_id: string | null;
+  model: string;
+  turn_eagerness: string;
+  auto_reconnect: boolean;
+}
+
+/**
+ * Partial-update input for `openhuman.voice_agent_config_set`. Every field is
+ * optional; only the keys present in the request are mutated server-side.
+ */
+export interface VoiceAgentConfigSetInput {
+  enabled?: boolean;
+  agent_id?: string;
+  voice_id?: string;
+  model?: string;
+  turn_eagerness?: string;
+  auto_reconnect?: boolean;
+}
+
+export interface VoiceAgentConfigSetOutput {
+  ok: boolean;
+  config: VoiceAgentConfigGetOutput;
+}
+
+/**
+ * Read the persisted ElevenLabs Conversational Agent configuration. Used by
+ * the Settings → Voice → Conversation mode panel to seed the form on load.
+ */
+export async function openhumanVoiceAgentConfigGet(): Promise<VoiceAgentConfigGetOutput> {
+  return await callCoreRpc<VoiceAgentConfigGetOutput>({
+    method: 'openhuman.voice_agent_config_get',
+    params: {},
+  });
+}
+
+/**
+ * Persist a partial update to the voice-agent config. Returns the merged
+ * snapshot so the caller can reflect server-side defaults / validation
+ * (e.g. `model` falling back when an empty string is sent).
+ */
+export async function openhumanVoiceAgentConfigSet(
+  input: VoiceAgentConfigSetInput
+): Promise<VoiceAgentConfigSetOutput> {
+  return await callCoreRpc<VoiceAgentConfigSetOutput>({
+    method: 'openhuman.voice_agent_config_set',
+    params: input,
+  });
+}
+
 /**
  * Unregister the global dictation hotkey if one is active.
  */
