@@ -24,9 +24,59 @@ vi.mock('./Mascot', () => ({ YellowMascot: () => <div data-testid="mascot-stub" 
 
 vi.mock('./useHumanMascot', () => ({ useHumanMascot: () => ({ face: 'idle', visemes: [] }) }));
 
-vi.mock('../../store/hooks', () => ({ useAppSelector: () => 'yellow' }));
+// Stub the Phase 4 voice-agent surface — the real hook opens a network
+// connection at mount which we don't want in unit tests. The push-to-talk
+// regression tests below mount HumanPage with `voiceMode='push-to-talk'`
+// (the default), so the conversational subtree never renders.
+vi.mock('./voice/conversationalAgent/useConversationalAgent', () => ({
+  useConversationalAgent: () => ({
+    state: {
+      lifecycle: 'idle',
+      conversationId: null,
+      isListening: false,
+      isSpeaking: false,
+      isMuted: false,
+      lastTranscript: null,
+      currentVisemeFrame: null,
+      error: null,
+    },
+    connect: () => Promise.resolve(),
+    disconnect: () => Promise.resolve(),
+    setMuted: () => {},
+    isListening: false,
+    isSpeaking: false,
+    isMuted: false,
+    currentVisemeFrame: null,
+    lastTranscript: null,
+    error: null,
+    conversationId: null,
+  }),
+}));
+vi.mock('./ConversationStatusIndicator', () => ({ ConversationStatusIndicator: () => null }));
+vi.mock('./MicComposer', () => ({ MicComposer: () => <div data-testid="mic-composer-stub" /> }));
 
-vi.mock('../../store/mascotSlice', () => ({ selectMascotColor: () => 'yellow' }));
+// `useAppSelector` is called for both mascot color AND voice mode. The
+// selector identity (the function passed in) determines which value we
+// should return — read the selector against a minimal state to keep this
+// mock honest as new fields land.
+vi.mock('../../store/hooks', () => ({
+  useAppSelector: <T,>(selector: (s: { mascot: Record<string, unknown> }) => T): T =>
+    selector({
+      mascot: {
+        color: 'yellow',
+        voiceMode: 'push-to-talk',
+        voiceId: null,
+        voiceGender: 'male',
+        voiceUseLocaleDefault: false,
+        selectedMascotId: null,
+      },
+    }),
+}));
+
+vi.mock('../../store/mascotSlice', () => ({
+  selectMascotColor: (s: { mascot: { color: string } }) => s.mascot.color,
+  selectVoiceMode: (s: { mascot: { voiceMode: string } }) => s.mascot.voiceMode,
+}));
 
 const SPEAK_REPLIES_KEY = 'human.speakReplies';
 
