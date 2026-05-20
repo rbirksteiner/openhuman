@@ -2,6 +2,11 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MicComposer } from './MicComposer';
+import type {
+  ConversationalAgentLifecycle,
+  ConversationalAgentState,
+} from './voice/conversationalAgent/types';
+import type { UseConversationalAgentResult } from './voice/conversationalAgent/useConversationalAgent';
 
 // transcribeWithFactory + encodeBlobToWav are the network/heavy boundaries —
 // mock them here so we can drive the state machine without touching real APIs.
@@ -478,5 +483,138 @@ describe('MicComposer', () => {
     expect(screen.queryByRole('combobox', { name: /microphone device/i })).not.toBeInTheDocument();
     // Composer still functional
     expect(screen.getByText('Tap and speak')).toBeInTheDocument();
+  });
+
+  // ── Push-to-talk regression: default mode stays push-to-talk ─────────────
+
+  it('renders push-to-talk UI when mode prop is omitted (regression)', () => {
+    render(<MicComposer disabled={false} onSubmit={vi.fn()} />);
+    expect(screen.getByText('Tap and speak')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /start recording/i })).toBeInTheDocument();
+  });
+
+  it('renders push-to-talk UI when mode="push-to-talk" is explicit', () => {
+    render(<MicComposer mode="push-to-talk" disabled={false} onSubmit={vi.fn()} />);
+    expect(screen.getByText('Tap and speak')).toBeInTheDocument();
+  });
+});
+
+// ── Conversational mode ────────────────────────────────────────────────────
+
+function makeStubAgent(
+  overrides: Partial<ConversationalAgentState> = {}
+): UseConversationalAgentResult {
+  const lifecycle: ConversationalAgentLifecycle = overrides.lifecycle ?? 'idle';
+  const state: ConversationalAgentState = {
+    lifecycle,
+    conversationId: overrides.conversationId ?? null,
+    isListening: overrides.isListening ?? false,
+    isSpeaking: overrides.isSpeaking ?? false,
+    isMuted: overrides.isMuted ?? false,
+    lastTranscript: overrides.lastTranscript ?? null,
+    currentVisemeFrame: overrides.currentVisemeFrame ?? null,
+    error: overrides.error ?? null,
+  };
+  return {
+    state,
+    connect: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn().mockResolvedValue(undefined),
+    setMuted: vi.fn(),
+    isListening: state.isListening,
+    isSpeaking: state.isSpeaking,
+    isMuted: state.isMuted,
+    currentVisemeFrame: state.currentVisemeFrame,
+    lastTranscript: state.lastTranscript,
+    error: state.error,
+    conversationId: state.conversationId,
+  };
+}
+
+describe('MicComposer conversational mode', () => {
+  it('renders the start-voice-mode button when idle', () => {
+    const agent = makeStubAgent({ lifecycle: 'idle' });
+    render(<MicComposer mode="conversational" disabled={false} onSubmit={vi.fn()} agent={agent} />);
+    expect(screen.getByRole('button', { name: /start voice mode/i })).toBeInTheDocument();
+    expect(screen.getByText(/idle/i)).toBeInTheDocument();
+  });
+
+  it('shows the connecting label while lifecycle === connecting', () => {
+    const agent = makeStubAgent({ lifecycle: 'connecting' });
+    render(<MicComposer mode="conversational" disabled={false} onSubmit={vi.fn()} agent={agent} />);
+    expect(screen.getByText(/connecting/i)).toBeInTheDocument();
+  });
+
+  it('shows the listening label while connected and isListening', () => {
+    const agent = makeStubAgent({ lifecycle: 'connected', isListening: true });
+    render(<MicComposer mode="conversational" disabled={false} onSubmit={vi.fn()} agent={agent} />);
+    expect(screen.getByText(/listening/i)).toBeInTheDocument();
+  });
+
+  it('shows the agent-speaking label while connected and isSpeaking', () => {
+    const agent = makeStubAgent({ lifecycle: 'connected', isSpeaking: true });
+    render(<MicComposer mode="conversational" disabled={false} onSubmit={vi.fn()} agent={agent} />);
+    expect(screen.getByText(/agent speaking/i)).toBeInTheDocument();
+  });
+
+  it('calls agent.connect when the button is clicked from idle', () => {
+    const agent = makeStubAgent({ lifecycle: 'idle' });
+    render(<MicComposer mode="conversational" disabled={false} onSubmit={vi.fn()} agent={agent} />);
+    fireEvent.click(screen.getByRole('button', { name: /start voice mode/i }));
+    expect(agent.connect).toHaveBeenCalledTimes(1);
+    expect(agent.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('calls agent.disconnect when the button is clicked while live', () => {
+    const agent = makeStubAgent({ lifecycle: 'connected', isListening: true });
+    render(<MicComposer mode="conversational" disabled={false} onSubmit={vi.fn()} agent={agent} />);
+    fireEvent.click(screen.getByRole('button', { name: /stop voice mode/i }));
+    expect(agent.disconnect).toHaveBeenCalledTimes(1);
+    expect(agent.connect).not.toHaveBeenCalled();
+  });
+
+  it('renders the mute toggle while live and routes its click to setMuted', () => {
+    const agent = makeStubAgent({ lifecycle: 'connected', isListening: true, isMuted: false });
+    render(<MicComposer mode="conversational" disabled={false} onSubmit={vi.fn()} agent={agent} />);
+    const muteBtn = screen.getByRole('button', { name: /mute microphone/i });
+    fireEvent.click(muteBtn);
+    expect(agent.setMuted).toHaveBeenCalledWith(true);
+  });
+
+  it('does not render the mute toggle while idle', () => {
+    const agent = makeStubAgent({ lifecycle: 'idle' });
+    render(<MicComposer mode="conversational" disabled={false} onSubmit={vi.fn()} agent={agent} />);
+    expect(screen.queryByRole('button', { name: /mute|unmute/i })).not.toBeInTheDocument();
+  });
+
+  it('spacebar toggles mute when live (not start/stop)', () => {
+    const agent = makeStubAgent({ lifecycle: 'connected', isListening: true, isMuted: false });
+    render(<MicComposer mode="conversational" disabled={false} onSubmit={vi.fn()} agent={agent} />);
+    fireEvent.keyDown(window, { code: 'Space' });
+    expect(agent.setMuted).toHaveBeenCalledWith(true);
+    expect(agent.connect).not.toHaveBeenCalled();
+    expect(agent.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('spacebar is a no-op while idle (does not connect)', () => {
+    const agent = makeStubAgent({ lifecycle: 'idle' });
+    render(<MicComposer mode="conversational" disabled={false} onSubmit={vi.fn()} agent={agent} />);
+    fireEvent.keyDown(window, { code: 'Space' });
+    expect(agent.connect).not.toHaveBeenCalled();
+    expect(agent.setMuted).not.toHaveBeenCalled();
+  });
+
+  it('forwards agent.error to onError', async () => {
+    const agent = makeStubAgent({ lifecycle: 'error', error: 'websocket closed' });
+    const onError = vi.fn();
+    render(
+      <MicComposer
+        mode="conversational"
+        disabled={false}
+        onSubmit={vi.fn()}
+        agent={agent}
+        onError={onError}
+      />
+    );
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('websocket closed'));
   });
 });

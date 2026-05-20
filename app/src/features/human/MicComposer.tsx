@@ -1,7 +1,11 @@
 import debug from 'debug';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useT } from '../../lib/i18n/I18nContext';
+import {
+  useConversationalAgent,
+  type UseConversationalAgentResult,
+} from './voice/conversationalAgent/useConversationalAgent';
 import { transcribeWithFactory } from './voice/sttClient';
 import { encodeBlobToWav } from './voice/wavEncoder';
 
@@ -30,10 +34,24 @@ function pickRecorderMime(): string {
   return '';
 }
 
+/**
+ * Composer mode. `push-to-talk` is the legacy MediaRecorder-driven branch;
+ * `conversational` mounts the ElevenLabs Conversational Agent hook and
+ * surfaces a single power-button + mute toggle.
+ *
+ * Implemented as two sibling React components below (`MicComposerPushToTalk`
+ * and `MicComposerConversational`) so the conversational branch can call
+ * `useConversationalAgent` unconditionally — flipping mode unmounts /
+ * remounts and the hook's lifecycle stays clean.
+ */
+export type MicComposerMode = 'push-to-talk' | 'conversational';
+
 export interface MicComposerProps {
   /** Disabled while a turn is in flight or the welcome message is pending. */
   disabled: boolean;
-  /** Receives the transcribed text — same callback the textarea send uses. */
+  /** Receives the transcribed text — same callback the textarea send uses.
+   *  Only the `push-to-talk` branch invokes this; in conversational mode
+   *  the agent owns text I/O end-to-end. */
   onSubmit: (text: string) => Promise<void> | void;
   /** Surfaced when the mic flow fails so the parent can show a banner. */
   onError?: (message: string) => void;
@@ -43,6 +61,23 @@ export interface MicComposerProps {
   language?: string;
   /** Show a microphone device selector beneath the button. Defaults to false. */
   showDeviceSelector?: boolean;
+  /** Selects the composer flavour. Defaults to `push-to-talk` so existing
+   *  callers (and tests) keep their previous behaviour unchanged. */
+  mode?: MicComposerMode;
+  /**
+   * ElevenLabs `agent_id` override for the conversational branch. Forwarded
+   * to `useConversationalAgent` — when undefined the hook uses the backend's
+   * signed-URL relay. Ignored in push-to-talk mode.
+   */
+  agentId?: string;
+  /**
+   * Optional pre-mounted agent. When the host page already owns a
+   * `useConversationalAgent` instance (e.g. so the same snapshot can feed
+   * the mascot face), pass it in here to avoid spinning up a second
+   * session manager. When omitted, the conversational subcomponent owns
+   * its own hook.
+   */
+  agent?: UseConversationalAgentResult;
 }
 
 type RecordingState = 'idle' | 'recording' | 'transcribing';
@@ -60,13 +95,13 @@ type RecordingState = 'idle' | 'recording' | 'transcribing';
  * Single button, single decision: tap once to start recording, tap again to
  * stop and send. No textarea — that's the whole point of the mascot tab.
  */
-export function MicComposer({
+function MicComposerPushToTalk({
   disabled,
   onSubmit,
   onError,
   language = 'en',
   showDeviceSelector = false,
-}: MicComposerProps) {
+}: Omit<MicComposerProps, 'mode' | 'agentId'>) {
   const { t } = useT();
   const [state, setState] = useState<RecordingState>('idle');
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
@@ -492,6 +527,243 @@ export function MicComposer({
         <span className="text-xs text-stone-500 dark:text-neutral-400 select-none">{label}</span>
       </div>
     </div>
+  );
+}
+
+// ── Conversational mode ──────────────────────────────────────────────────────
+
+/**
+ * Map the agent state machine to a short label for the button + status line.
+ * Mirrors the labels VoiceAgentTester uses so the UX stays consistent when
+ * the user flips modes mid-session.
+ */
+function labelForLifecycle(state: {
+  lifecycle: 'idle' | 'connecting' | 'connected' | 'disconnected' | 'error';
+  isSpeaking: boolean;
+  isListening: boolean;
+}): string {
+  if (state.lifecycle === 'connecting') return 'Connecting…';
+  if (state.lifecycle === 'error') return 'Error';
+  if (state.lifecycle === 'disconnected') return 'Disconnected';
+  if (state.lifecycle !== 'connected') return 'Idle';
+  if (state.isSpeaking) return 'Agent speaking…';
+  if (state.isListening) return 'Listening…';
+  return 'Connected';
+}
+
+interface MicComposerConversationalProps {
+  disabled: boolean;
+  onError?: (message: string) => void;
+  agent: UseConversationalAgentResult;
+}
+
+/**
+ * Continuous-conversation composer. Renders a single big power-button +
+ * (when live) a mute toggle backed by the supplied agent hook snapshot.
+ * Spacebar toggles **mute** in this mode (not start/stop) — the stop
+ * button is the only path back to disconnected so accidental keystrokes
+ * can't drop the WebSocket.
+ */
+function MicComposerConversational({ disabled, onError, agent }: MicComposerConversationalProps) {
+  const isLive = agent.state.lifecycle === 'connected' || agent.state.lifecycle === 'connecting';
+  const isConnecting = agent.state.lifecycle === 'connecting';
+  const buttonDisabled = disabled || isConnecting;
+
+  const onToggle = useCallback(() => {
+    if (isLive) {
+      void agent.disconnect();
+    } else {
+      void agent.connect();
+    }
+  }, [agent, isLive]);
+
+  const onToggleMute = useCallback(() => {
+    agent.setMuted(!agent.isMuted);
+  }, [agent]);
+
+  // Bubble agent errors out the same `onError` callback the push-to-talk
+  // branch uses, so the host page only has one banner path.
+  const lastErrorRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (agent.error && agent.error !== lastErrorRef.current) {
+      lastErrorRef.current = agent.error;
+      onError?.(agent.error);
+    }
+    if (!agent.error) {
+      lastErrorRef.current = null;
+    }
+  }, [agent.error, onError]);
+
+  // Spacebar = mute toggle while live. Same focus-guard logic as the
+  // push-to-talk branch — pulled out to its own effect so the dependency
+  // list stays tight.
+  useEffect(() => {
+    function shouldIgnoreFocus(target: EventTarget | null): boolean {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') {
+        return true;
+      }
+      if (target.isContentEditable) return true;
+      const editableAncestor = target.closest('[contenteditable]');
+      if (editableAncestor instanceof HTMLElement) {
+        const value = editableAncestor.getAttribute('contenteditable');
+        if (value === '' || value === 'true' || value === 'plaintext-only') return true;
+      }
+      return false;
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.code !== 'Space') return;
+      if (event.repeat) return;
+      if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (shouldIgnoreFocus(event.target ?? document.activeElement)) return;
+      // Only meaningful while a session is live — otherwise spacebar is a
+      // no-op rather than a connect shortcut (matches the spec: connect is
+      // an explicit click).
+      if (!isLive) return;
+      event.preventDefault();
+      composerLog('conversational spacebar — toggling mute, current isMuted=%s', agent.isMuted);
+      agent.setMuted(!agent.isMuted);
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [agent, isLive]);
+
+  const status = labelForLifecycle(agent.state);
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div className="flex items-center justify-center gap-3">
+        <button
+          type="button"
+          aria-label={isLive ? 'Stop voice mode' : 'Start voice mode'}
+          onClick={onToggle}
+          disabled={buttonDisabled}
+          className={`relative w-14 h-14 flex items-center justify-center rounded-full text-white shadow-soft transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+            isLive ? 'bg-coral-500 hover:bg-coral-400' : 'bg-primary-500 hover:bg-primary-600'
+          }`}>
+          {isLive && (
+            <span
+              className={`absolute inset-0 rounded-full ${
+                isConnecting ? 'bg-amber-400/40 animate-pulse' : 'bg-coral-500/40 animate-ping'
+              }`}
+            />
+          )}
+          {isConnecting ? (
+            <svg className="w-5 h-5 animate-spin relative" fill="none" viewBox="0 0 24 24">
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
+            </svg>
+          ) : isLive ? (
+            // Stop / power-off glyph: square inside circle, matches the
+            // coral background.
+            <svg
+              className="relative w-6 h-6"
+              fill="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+          ) : (
+            // Power glyph when idle — visually distinct from the
+            // push-to-talk mic icon so users can tell which mode they're in.
+            <svg
+              className="relative w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.8}
+              viewBox="0 0 24 24"
+              aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v8" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 7.5a6 6 0 109 0" />
+            </svg>
+          )}
+        </button>
+        {isLive && (
+          <button
+            type="button"
+            aria-label={agent.isMuted ? 'Unmute microphone' : 'Mute microphone'}
+            onClick={onToggleMute}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              agent.isMuted
+                ? 'bg-amber-100 border-amber-300 text-amber-900 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-700'
+                : 'bg-stone-100 border-stone-300 text-stone-700 dark:bg-neutral-800 dark:text-neutral-200 dark:border-neutral-700'
+            }`}>
+            {agent.isMuted ? 'Unmute' : 'Mute'}
+          </button>
+        )}
+        <span className="text-xs text-stone-500 dark:text-neutral-400 select-none">{status}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Owns-the-hook conversational mount. Used when the host page hasn't
+ * already created an agent (i.e. `MicComposer` is called with
+ * `mode="conversational"` and no `agent` prop). Splitting it out keeps
+ * the hook call unconditional on this render path while letting the
+ * shared-agent branch skip the manager entirely.
+ */
+function MicComposerConversationalOwnsHook({
+  disabled,
+  onError,
+  agentId,
+}: {
+  disabled: boolean;
+  onError?: (message: string) => void;
+  agentId?: string;
+}) {
+  const agent = useConversationalAgent({ agentId });
+  return <MicComposerConversational disabled={disabled} onError={onError} agent={agent} />;
+}
+
+/**
+ * Mode-dispatching composer. Picks one of the two implementations based
+ * on `mode`; flipping mode unmounts the conversational subtree which
+ * cleanly tears the WebSocket down via the hook's effect cleanup.
+ */
+export function MicComposer(props: MicComposerProps) {
+  const { mode = 'push-to-talk' } = props;
+  if (mode === 'conversational') {
+    if (props.agent) {
+      return (
+        <MicComposerConversational
+          disabled={props.disabled}
+          onError={props.onError}
+          agent={props.agent}
+        />
+      );
+    }
+    return (
+      <MicComposerConversationalOwnsHook
+        disabled={props.disabled}
+        onError={props.onError}
+        agentId={props.agentId}
+      />
+    );
+  }
+  return (
+    <MicComposerPushToTalk
+      disabled={props.disabled}
+      onSubmit={props.onSubmit}
+      onError={props.onError}
+      language={props.language}
+      showDeviceSelector={props.showDeviceSelector}
+    />
   );
 }
 
