@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useDispatch } from 'react-redux';
 
 import { useT } from '../../../lib/i18n/I18nContext';
 import {
@@ -8,15 +9,20 @@ import {
   type VoiceInstallStatus,
   whisperInstallStatus,
 } from '../../../services/api/voiceInstallApi';
+import { useAppSelector } from '../../../store/hooks';
+import { selectVoiceMode, setVoiceMode, type VoiceMode } from '../../../store/mascotSlice';
 import {
   openhumanGetVoiceServerSettings,
   openhumanLocalAiAssetsStatus,
   openhumanUpdateVoiceServerSettings,
+  openhumanVoiceAgentConfigGet,
+  openhumanVoiceAgentConfigSet,
   openhumanVoiceServerStart,
   openhumanVoiceServerStatus,
   openhumanVoiceServerStop,
   openhumanVoiceSetProviders,
   openhumanVoiceStatus,
+  type VoiceAgentConfigGetOutput,
   type VoiceProvidersSnapshot,
   type VoiceServerSettings,
   type VoiceServerStatus,
@@ -24,6 +30,12 @@ import {
 } from '../../../utils/tauriCommands';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
+
+const VOICE_AGENT_MODEL_OPTIONS: ReadonlyArray<{ id: string; label: string }> = [
+  { id: 'eleven_flash_v2_5', label: 'eleven_flash_v2_5 (low-latency, recommended)' },
+  { id: 'eleven_turbo_v2_5', label: 'eleven_turbo_v2_5 (higher quality)' },
+];
+const VOICE_AGENT_DEBOUNCE_MS = 400;
 
 // Curated Piper voice presets — a handful of well-known English voices
 // covering male/female and US/GB accents at the recommended `medium`
@@ -50,7 +62,17 @@ interface VoicePanelProps {
 
 const VoicePanel = ({ embedded = false }: VoicePanelProps = {}) => {
   const { t } = useT();
+  const dispatch = useDispatch();
+  const voiceMode = useAppSelector(selectVoiceMode);
   const { navigateBack, navigateToSettings, breadcrumbs } = useSettingsNavigation();
+  // Conversation-mode (voice agent) form state. Seeded from
+  // `openhuman.voice_agent_config_get`; writes go through
+  // `openhuman.voice_agent_config_set` (debounced for free-text fields).
+  const [voiceAgentConfig, setVoiceAgentConfig] = useState<VoiceAgentConfigGetOutput | null>(null);
+  const [voiceAgentAgentId, setVoiceAgentAgentId] = useState('');
+  const [voiceAgentVoiceId, setVoiceAgentVoiceId] = useState('');
+  const [voiceAgentModel, setVoiceAgentModel] = useState<string>(VOICE_AGENT_MODEL_OPTIONS[0].id);
+  const voiceAgentSaveTimerRef = useRef<number | null>(null);
   const [settings, setSettings] = useState<VoiceServerSettings | null>(null);
   const [savedSettings, setSavedSettings] = useState<VoiceServerSettings | null>(null);
   const [serverStatus, setServerStatus] = useState<VoiceServerStatus | null>(null);
@@ -179,6 +201,83 @@ const VoicePanel = ({ embedded = false }: VoicePanelProps = {}) => {
     }, 2000);
     return () => window.clearInterval(timer);
   }, []);
+
+  // Load the conversational-agent config exactly once. Unlike the dictation
+  // settings above we don't need to poll — there's no out-of-band update path.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const cfg = await openhumanVoiceAgentConfigGet();
+        if (cancelled) return;
+        setVoiceAgentConfig(cfg);
+        setVoiceAgentAgentId(cfg.agent_id ?? '');
+        setVoiceAgentVoiceId(cfg.voice_id ?? '');
+        // Default to the lowest-latency model when the backend hasn't
+        // persisted a choice yet (or persisted one we no longer offer).
+        const known = VOICE_AGENT_MODEL_OPTIONS.find(m => m.id === cfg.model);
+        setVoiceAgentModel(known?.id ?? VOICE_AGENT_MODEL_OPTIONS[0].id);
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : 'Failed to load voice agent settings';
+        setError(message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Tear down the debounce timer on unmount so a setVoiceAgentConfig firing
+  // after the panel is closed can't race a fresh-mount load.
+  useEffect(
+    () => () => {
+      if (voiceAgentSaveTimerRef.current != null) {
+        window.clearTimeout(voiceAgentSaveTimerRef.current);
+        voiceAgentSaveTimerRef.current = null;
+      }
+    },
+    []
+  );
+
+  const persistVoiceAgentConfig = async (
+    update: Parameters<typeof openhumanVoiceAgentConfigSet>[0]
+  ) => {
+    setError(null);
+    try {
+      const next = await openhumanVoiceAgentConfigSet(update);
+      setVoiceAgentConfig(next.config);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save voice agent settings';
+      setError(message);
+    }
+  };
+
+  const scheduleVoiceAgentSave = (update: Parameters<typeof openhumanVoiceAgentConfigSet>[0]) => {
+    if (voiceAgentSaveTimerRef.current != null) {
+      window.clearTimeout(voiceAgentSaveTimerRef.current);
+    }
+    voiceAgentSaveTimerRef.current = window.setTimeout(() => {
+      voiceAgentSaveTimerRef.current = null;
+      void persistVoiceAgentConfig(update);
+    }, VOICE_AGENT_DEBOUNCE_MS);
+  };
+
+  const onVoiceModeChange = (next: VoiceMode) => {
+    // Don't let the user flip into a conversational mode without an
+    // agent_id — the WebSocket open would fail immediately and surface
+    // a confusing error. The radios for those options are disabled in
+    // the markup; this branch is belt-and-braces.
+    if (next !== 'push-to-talk' && !voiceAgentAgentId.trim()) {
+      setError('Set an Agent ID before enabling conversational mode.');
+      return;
+    }
+    dispatch(setVoiceMode(next));
+    void persistVoiceAgentConfig({ enabled: next !== 'push-to-talk' });
+  };
+
+  const voiceAgentMissingId = !voiceAgentAgentId.trim();
+  const isConversationalMode = voiceMode !== 'push-to-talk';
 
   const updateSetting = <K extends keyof VoiceServerSettings>(
     key: K,
@@ -409,6 +508,162 @@ const VoicePanel = ({ embedded = false }: VoicePanelProps = {}) => {
         <section className="space-y-3">
           <div
             className="bg-stone-50 dark:bg-neutral-800/60 rounded-lg border border-stone-200 dark:border-neutral-800 p-4 space-y-4"
+            data-testid="voice-agent-section">
+            <div>
+              <h3 className="text-sm font-semibold text-stone-900 dark:text-neutral-100">
+                Conversation mode
+              </h3>
+              <p className="text-xs text-stone-500 dark:text-neutral-400 mt-1">
+                Choose how the Human page mic behaves: tap-to-record (default) or continuous
+                full-duplex voice via the ElevenLabs Conversational Agent.
+              </p>
+            </div>
+            <div className="space-y-2" role="radiogroup" aria-label="Conversation mode">
+              <label className="flex items-start gap-2 text-sm text-stone-700 dark:text-neutral-200 cursor-pointer">
+                <input
+                  type="radio"
+                  name="voice-mode"
+                  value="push-to-talk"
+                  data-testid="voice-mode-radio-off"
+                  checked={voiceMode === 'push-to-talk'}
+                  onChange={() => onVoiceModeChange('push-to-talk')}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium">Off (push-to-talk)</span>
+                  <span className="block text-[11px] text-stone-500 dark:text-neutral-400">
+                    Record → send → respond. Today's default flow.
+                  </span>
+                </span>
+              </label>
+              <label
+                className={`flex items-start gap-2 text-sm cursor-pointer ${
+                  voiceAgentMissingId
+                    ? 'text-stone-400 dark:text-neutral-500 cursor-not-allowed'
+                    : 'text-stone-700 dark:text-neutral-200'
+                }`}
+                title={voiceAgentMissingId ? 'Set Agent ID first' : undefined}>
+                <input
+                  type="radio"
+                  name="voice-mode"
+                  value="conversational"
+                  data-testid="voice-mode-radio-on"
+                  checked={voiceMode === 'conversational'}
+                  disabled={voiceAgentMissingId}
+                  onChange={() => onVoiceModeChange('conversational')}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium">On (continuous)</span>
+                  <span className="block text-[11px] text-stone-500 dark:text-neutral-400">
+                    Open mic with server-side VAD. Streamed transcripts + speech in real time.
+                  </span>
+                </span>
+              </label>
+              <label
+                className={`flex items-start gap-2 text-sm cursor-pointer ${
+                  voiceAgentMissingId
+                    ? 'text-stone-400 dark:text-neutral-500 cursor-not-allowed'
+                    : 'text-stone-700 dark:text-neutral-200'
+                }`}
+                title={voiceAgentMissingId ? 'Set Agent ID first' : undefined}>
+                <input
+                  type="radio"
+                  name="voice-mode"
+                  value="auto"
+                  data-testid="voice-mode-radio-auto"
+                  checked={voiceMode === 'auto'}
+                  disabled={voiceAgentMissingId}
+                  onChange={() => onVoiceModeChange('auto')}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium">Auto</span>
+                  <span className="block text-[11px] text-stone-500 dark:text-neutral-400">
+                    Try continuous; fall back to push-to-talk on connection failure.
+                  </span>
+                </span>
+              </label>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-stone-600 dark:text-neutral-300">
+                  Agent ID{' '}
+                  {voiceAgentMissingId && (
+                    <span className="text-rose-600 dark:text-rose-300">(required)</span>
+                  )}
+                </span>
+                <input
+                  type="text"
+                  data-testid="voice-agent-id-input"
+                  value={voiceAgentAgentId}
+                  placeholder="agent_…"
+                  onChange={e => {
+                    const next = e.target.value;
+                    setVoiceAgentAgentId(next);
+                    scheduleVoiceAgentSave({ agent_id: next.trim() });
+                  }}
+                  className="w-full rounded-md border border-stone-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-stone-900 dark:text-neutral-100 placeholder:text-stone-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-primary-400"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-stone-600 dark:text-neutral-300">
+                  Voice ID
+                </span>
+                <input
+                  type="text"
+                  data-testid="voice-agent-voice-id-input"
+                  value={voiceAgentVoiceId}
+                  placeholder="defaults to mascot voice"
+                  onChange={e => {
+                    const next = e.target.value;
+                    setVoiceAgentVoiceId(next);
+                    scheduleVoiceAgentSave({ voice_id: next.trim() });
+                  }}
+                  className="w-full rounded-md border border-stone-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-stone-900 dark:text-neutral-100 placeholder:text-stone-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-primary-400"
+                />
+              </label>
+              <label className="block space-y-1 sm:col-span-2">
+                <span className="text-xs font-medium text-stone-600 dark:text-neutral-300">
+                  Model
+                </span>
+                <select
+                  data-testid="voice-agent-model-select"
+                  value={voiceAgentModel}
+                  onChange={e => {
+                    const next = e.target.value;
+                    setVoiceAgentModel(next);
+                    void persistVoiceAgentConfig({ model: next });
+                  }}
+                  className="w-full rounded-md border border-stone-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-stone-900 dark:text-neutral-100 focus:outline-none focus:ring-1 focus:ring-primary-400">
+                  {VOICE_AGENT_MODEL_OPTIONS.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {voiceAgentConfig && (
+              <p className="text-[11px] text-stone-400 dark:text-neutral-500">
+                Active: {voiceAgentConfig.enabled ? 'enabled' : 'disabled'} ·{' '}
+                {voiceAgentConfig.model || 'default model'}
+              </p>
+            )}
+          </div>
+        </section>
+
+        <section
+          className={`space-y-3 ${isConversationalMode ? 'opacity-60' : ''}`}
+          data-testid="voice-providers-wrapper">
+          {isConversationalMode && (
+            <p className="text-[11px] text-stone-500 dark:text-neutral-400 px-1">
+              STT / TTS provider settings below are managed by ElevenLabs Agent while conversation
+              mode is on.
+            </p>
+          )}
+          <div
+            className="bg-stone-50 dark:bg-neutral-800/60 rounded-lg border border-stone-200 dark:border-neutral-800 p-4 space-y-4"
             data-testid="voice-providers-section">
             <div>
               <h3 className="text-sm font-semibold text-stone-900 dark:text-neutral-100">
@@ -429,7 +684,7 @@ const VoicePanel = ({ embedded = false }: VoicePanelProps = {}) => {
                   aria-label="STT provider"
                   data-testid="stt-provider-select"
                   value={sttProvider || 'cloud'}
-                  disabled={isSavingProviders}
+                  disabled={isSavingProviders || isConversationalMode}
                   onChange={e => onSttProviderChange(e.target.value as 'cloud' | 'whisper')}
                   className="w-full rounded-md border border-stone-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-stone-900 dark:text-neutral-100 focus:outline-none focus:ring-1 focus:ring-primary-400">
                   <option value="cloud">Cloud (Whisper proxy)</option>
@@ -519,7 +774,7 @@ const VoicePanel = ({ embedded = false }: VoicePanelProps = {}) => {
                   aria-label="TTS provider"
                   data-testid="tts-provider-select"
                   value={ttsProvider || 'cloud'}
-                  disabled={isSavingProviders}
+                  disabled={isSavingProviders || isConversationalMode}
                   onChange={e => onTtsProviderChange(e.target.value as 'cloud' | 'piper')}
                   className="w-full rounded-md border border-stone-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-stone-900 dark:text-neutral-100 focus:outline-none focus:ring-1 focus:ring-primary-400">
                   <option value="cloud">Cloud (ElevenLabs proxy)</option>
@@ -638,7 +893,10 @@ const VoicePanel = ({ embedded = false }: VoicePanelProps = {}) => {
         </section>
 
         {/* Mascot voice picker now lives in Mascot settings. Link
-            kept here so users hunting in Voice settings can find it. */}
+            kept here so users hunting in Voice settings can find it.
+            (Note: the Voice Providers wrapper section opened above closes
+            here too, indirectly — the JSX is balanced by the second
+            </section> directly above this comment.) */}
         {ttsProvider !== 'piper' && (
           <section className="space-y-3" data-testid="mascot-voice-link">
             <div className="bg-stone-50 dark:bg-neutral-800/60 rounded-lg border border-stone-200 dark:border-neutral-800 p-4">

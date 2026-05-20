@@ -15,11 +15,14 @@ import {
   openhumanGetVoiceServerSettings,
   openhumanLocalAiAssetsStatus,
   openhumanUpdateVoiceServerSettings,
+  openhumanVoiceAgentConfigGet,
+  openhumanVoiceAgentConfigSet,
   openhumanVoiceServerStart,
   openhumanVoiceServerStatus,
   openhumanVoiceServerStop,
   openhumanVoiceSetProviders,
   openhumanVoiceStatus,
+  type VoiceAgentConfigGetOutput,
   type VoiceServerSettings,
   type VoiceServerStatus,
   type VoiceStatus,
@@ -30,6 +33,8 @@ vi.mock('../../../../utils/tauriCommands', () => ({
   openhumanGetVoiceServerSettings: vi.fn(),
   openhumanLocalAiAssetsStatus: vi.fn(),
   openhumanUpdateVoiceServerSettings: vi.fn(),
+  openhumanVoiceAgentConfigGet: vi.fn(),
+  openhumanVoiceAgentConfigSet: vi.fn(),
   openhumanVoiceServerStart: vi.fn(),
   openhumanVoiceServerStatus: vi.fn(),
   openhumanVoiceServerStop: vi.fn(),
@@ -64,6 +69,7 @@ type RuntimeHarness = {
   sttState: string;
   whisperStatus: VoiceInstallStatus;
   piperStatus: VoiceInstallStatus;
+  voiceAgentConfig: VoiceAgentConfigGetOutput;
 };
 
 const makeInstallStatus = (
@@ -129,6 +135,14 @@ describe('VoicePanel', () => {
       sttState: 'ready',
       whisperStatus: makeInstallStatus('whisper'),
       piperStatus: makeInstallStatus('piper'),
+      voiceAgentConfig: {
+        enabled: false,
+        agent_id: null,
+        voice_id: null,
+        model: 'eleven_flash_v2_5',
+        turn_eagerness: 'normal',
+        auto_reconnect: true,
+      },
     };
 
     vi.mocked(openhumanGetVoiceServerSettings).mockImplementation(async () => ({
@@ -196,6 +210,21 @@ describe('VoicePanel', () => {
         stage: 'install complete',
       });
       return { ...runtime.piperStatus };
+    });
+    vi.mocked(openhumanVoiceAgentConfigGet).mockImplementation(async () => ({
+      ...runtime.voiceAgentConfig,
+    }));
+    vi.mocked(openhumanVoiceAgentConfigSet).mockImplementation(async update => {
+      runtime.voiceAgentConfig = {
+        ...runtime.voiceAgentConfig,
+        ...(update.enabled !== undefined ? { enabled: update.enabled } : {}),
+        ...(update.agent_id !== undefined ? { agent_id: update.agent_id || null } : {}),
+        ...(update.voice_id !== undefined ? { voice_id: update.voice_id || null } : {}),
+        ...(update.model !== undefined ? { model: update.model } : {}),
+        ...(update.turn_eagerness !== undefined ? { turn_eagerness: update.turn_eagerness } : {}),
+        ...(update.auto_reconnect !== undefined ? { auto_reconnect: update.auto_reconnect } : {}),
+      };
+      return { ok: true, config: { ...runtime.voiceAgentConfig } };
     });
   });
 
@@ -491,6 +520,76 @@ describe('VoicePanel', () => {
 
     const stateSpan = await screen.findByTestId('piper-install-state');
     await waitFor(() => expect(stateSpan).toHaveTextContent(/downloading voice/i));
+  });
+
+  // ── Phase 4: Conversation mode (voice agent) ───────────────────────────
+
+  it('renders the conversation-mode radio group seeded to push-to-talk', async () => {
+    renderWithProviders(<VoicePanel />, { initialEntries: ['/settings/voice'] });
+    const off = (await screen.findByTestId('voice-mode-radio-off')) as HTMLInputElement;
+    expect(off.checked).toBe(true);
+    const on = (await screen.findByTestId('voice-mode-radio-on')) as HTMLInputElement;
+    expect(on.checked).toBe(false);
+  });
+
+  it('disables the conversational radios while no agent_id is set', async () => {
+    renderWithProviders(<VoicePanel />, { initialEntries: ['/settings/voice'] });
+    const on = (await screen.findByTestId('voice-mode-radio-on')) as HTMLInputElement;
+    const auto = (await screen.findByTestId('voice-mode-radio-auto')) as HTMLInputElement;
+    expect(on).toBeDisabled();
+    expect(auto).toBeDisabled();
+  });
+
+  it('enables the conversational radios once an agent_id is typed', async () => {
+    runtime.voiceAgentConfig.agent_id = 'agent_abc123';
+    renderWithProviders(<VoicePanel />, { initialEntries: ['/settings/voice'] });
+    const on = (await screen.findByTestId('voice-mode-radio-on')) as HTMLInputElement;
+    await waitFor(() => expect(on).not.toBeDisabled());
+  });
+
+  it('persists the mode change through openhumanVoiceAgentConfigSet', async () => {
+    runtime.voiceAgentConfig.agent_id = 'agent_abc123';
+    renderWithProviders(<VoicePanel />, { initialEntries: ['/settings/voice'] });
+    const on = (await screen.findByTestId('voice-mode-radio-on')) as HTMLInputElement;
+    await waitFor(() => expect(on).not.toBeDisabled());
+    fireEvent.click(on);
+    await waitFor(() =>
+      expect(vi.mocked(openhumanVoiceAgentConfigSet)).toHaveBeenCalledWith(
+        expect.objectContaining({ enabled: true })
+      )
+    );
+  });
+
+  it('debounces agent_id edits to a single voice_agent_config_set call', async () => {
+    renderWithProviders(<VoicePanel />, { initialEntries: ['/settings/voice'] });
+    const input = (await screen.findByTestId('voice-agent-id-input')) as HTMLInputElement;
+    const beforeCalls = vi.mocked(openhumanVoiceAgentConfigSet).mock.calls.length;
+    fireEvent.change(input, { target: { value: 'agent_x' } });
+    fireEvent.change(input, { target: { value: 'agent_xy' } });
+    fireEvent.change(input, { target: { value: 'agent_xyz' } });
+    // Wait for the 400 ms debounce timer to drain. Real-timer wait keeps
+    // the panel's own 2 s polling interval working in the background; a
+    // fake-timer flush leaks across siblings via jsdom's microtask queue.
+    await new Promise(r => setTimeout(r, 500));
+    const lastCall = vi.mocked(openhumanVoiceAgentConfigSet).mock.calls.at(-1);
+    expect(lastCall?.[0]).toEqual(expect.objectContaining({ agent_id: 'agent_xyz' }));
+    // Exactly one debounced flush — successive change events did not
+    // each fire their own RPC.
+    const afterCalls = vi.mocked(openhumanVoiceAgentConfigSet).mock.calls.length;
+    expect(afterCalls - beforeCalls).toBe(1);
+  });
+
+  it('persists the model select change immediately (no debounce)', async () => {
+    runtime.voiceAgentConfig.agent_id = 'agent_abc123';
+    renderWithProviders(<VoicePanel />, { initialEntries: ['/settings/voice'] });
+    const select = (await screen.findByTestId('voice-agent-model-select')) as HTMLSelectElement;
+    await waitFor(() => expect(select.value).toBe('eleven_flash_v2_5'));
+    fireEvent.change(select, { target: { value: 'eleven_turbo_v2_5' } });
+    await waitFor(() =>
+      expect(vi.mocked(openhumanVoiceAgentConfigSet)).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'eleven_turbo_v2_5' })
+      )
+    );
   });
 
   it('renders a preset select and auto-installs when a Piper voice preset is changed', async () => {
