@@ -1,4 +1,5 @@
 import debug from 'debug';
+import * as Sentry from '@sentry/react';
 import { Conversation } from '@elevenlabs/client';
 import type {
   AgentEvent,
@@ -8,6 +9,25 @@ import type {
 import { INITIAL_CONVERSATIONAL_AGENT_STATE, DISCONNECT_REASON } from './types';
 
 const log = debug('openhuman:voice-agent:session');
+
+/**
+ * Drop a structured breadcrumb so production failures from the voice-agent
+ * pipeline are debuggable in Sentry. Phase 7 acceptance #3 requires that a
+ * 30s session produces at least the connecting/connected/disconnected
+ * breadcrumb trio.
+ */
+function addBreadcrumb(message: string, data: Record<string, unknown> = {}): void {
+  try {
+    Sentry.addBreadcrumb({
+      category: 'voice-agent',
+      level: 'info',
+      message,
+      data,
+    });
+  } catch {
+    /* Sentry not initialized in tests — swallow */
+  }
+}
 
 /**
  * Plain TS class that owns the ElevenLabs Conversational Agent WebSocket
@@ -86,6 +106,7 @@ export class ConversationalAgentSessionManager {
     }
     this.updateSnapshot({ lifecycle: 'connecting', error: null });
     this.emit({ kind: 'connecting' });
+    addBreadcrumb('state -> connecting');
 
     let signed: SignedUrlResponse;
     try {
@@ -95,6 +116,7 @@ export class ConversationalAgentSessionManager {
       log('[voice-agent] fetchSignedUrl failed: %s', message);
       this.updateSnapshot({ lifecycle: 'error', error: message });
       this.emit({ kind: 'error', message });
+      addBreadcrumb('state -> error', { stage: 'fetch_signed_url', message });
       return;
     }
     this.expiresAt = signed.expiresAt;
@@ -108,6 +130,7 @@ export class ConversationalAgentSessionManager {
           this.turnCount = 0;
           this.updateSnapshot({ lifecycle: 'connected', conversationId });
           this.emit({ kind: 'connected', conversationId });
+          addBreadcrumb('state -> connected', { conversation_id: conversationId });
         },
         onDisconnect: (details: { reason: string }) => {
           const reason =
@@ -123,6 +146,11 @@ export class ConversationalAgentSessionManager {
             conversationId: null,
           });
           this.emit({ kind: 'disconnected', reason });
+          addBreadcrumb('state -> disconnected', {
+            reason,
+            duration_ms: this.startedAt ? Date.now() - this.startedAt : 0,
+            turn_count: this.turnCount,
+          });
           this.conv = null;
         },
         onError: (message: string) => {
