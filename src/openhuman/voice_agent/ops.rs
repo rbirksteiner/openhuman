@@ -151,7 +151,9 @@ pub async fn config_get() -> Result<VoiceAgentConfigGetOutput, String> {
 // ── config set ────────────────────────────────────────────────────────────────
 
 /// Apply a partial patch to the `voice_agent` config section and persist.
-pub async fn config_set(input: VoiceAgentConfigSetInput) -> Result<VoiceAgentConfigSetOutput, String> {
+pub async fn config_set(
+    input: VoiceAgentConfigSetInput,
+) -> Result<VoiceAgentConfigSetOutput, String> {
     tracing::debug!(?input, "[voice_agent] config_set: entry");
 
     let mut config = config_rpc::load_config_with_timeout()
@@ -195,7 +197,10 @@ pub async fn config_set(input: VoiceAgentConfigSetInput) -> Result<VoiceAgentCon
         "[voice_agent] config_set: persisted"
     );
 
-    Ok(VoiceAgentConfigSetOutput { ok: true, config: out })
+    Ok(VoiceAgentConfigSetOutput {
+        ok: true,
+        config: out,
+    })
 }
 
 // ── telemetry ─────────────────────────────────────────────────────────────────
@@ -234,8 +239,8 @@ pub async fn session_ended(input: SessionEndedInput) -> Result<OkOutput, String>
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::{default_turn_eagerness, default_voice_agent_model, yes};
     use super::super::types::{VoiceAgentConfig, VoiceAgentConfigSetInput};
-    use super::super::types::{default_voice_agent_model, default_turn_eagerness, yes};
 
     // ── VoiceAgentConfig defaults ────────────────────────────────────
 

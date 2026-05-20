@@ -10,8 +10,7 @@ use crate::core::{ControllerSchema, FieldSchema, TypeSchema};
 use crate::rpc::RpcOutcome;
 
 use super::types::{
-    GetSignedUrlInput, SessionEndedInput, SessionStartedInput,
-    VoiceAgentConfigSetInput,
+    GetSignedUrlInput, SessionEndedInput, SessionStartedInput, VoiceAgentConfigSetInput,
 };
 
 // ── Schema registry ───────────────────────────────────────────────────────────
@@ -306,8 +305,7 @@ fn config_get_output_fields() -> Vec<FieldSchema> {
 fn handle_get_signed_url(params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
         tracing::debug!("[voice_agent] handle_get_signed_url: entry");
-        let input = read_optional_struct::<GetSignedUrlInput>(&params)
-            .unwrap_or_default();
+        let input = read_optional_struct::<GetSignedUrlInput>(&params).unwrap_or_default();
         let result = super::ops::get_signed_url(input).await?;
         tracing::debug!(ok = %result.ok, "[voice_agent] handle_get_signed_url: exit");
         to_json(RpcOutcome::new(result, vec![]))
@@ -326,8 +324,7 @@ fn handle_config_get(_params: Map<String, Value>) -> ControllerFuture {
 fn handle_config_set(params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
         tracing::debug!("[voice_agent] handle_config_set: entry");
-        let input = read_optional_struct::<VoiceAgentConfigSetInput>(&params)
-            .unwrap_or_default();
+        let input = read_optional_struct::<VoiceAgentConfigSetInput>(&params).unwrap_or_default();
         let result = super::ops::config_set(input).await?;
         tracing::debug!(ok = %result.ok, "[voice_agent] handle_config_set: exit");
         to_json(RpcOutcome::new(result, vec![]))
@@ -393,9 +390,7 @@ fn read_required_u32(params: &Map<String, Value>, key: &str) -> Result<u32, Stri
 
 /// Deserialise the entire params map as `T`.  Returns `None` on empty params
 /// so callers can `.unwrap_or_default()` for fully-optional input structs.
-fn read_optional_struct<T: DeserializeOwned + Default>(
-    params: &Map<String, Value>,
-) -> Option<T> {
+fn read_optional_struct<T: DeserializeOwned + Default>(params: &Map<String, Value>) -> Option<T> {
     if params.is_empty() {
         return None;
     }

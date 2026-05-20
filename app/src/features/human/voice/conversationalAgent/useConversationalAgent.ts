@@ -39,6 +39,15 @@ async function defaultFetchSignedUrl(): Promise<SignedUrlResponse> {
 
 export interface UseConversationalAgentOptions {
   /**
+   * If set, the SDK connects directly with this `agent_id` (using the
+   * agent's allowlisted origin auth — no backend signed-URL relay).
+   *
+   * Use this for testing while the backend route (Phase 1) is pending. In
+   * production with the relay live, leave this undefined so the hook calls
+   * the Rust core's `openhuman.voice_agent_get_signed_url`.
+   */
+  agentId?: string;
+  /**
    * Test-only: inject a fully-formed deps bag. In production callers should
    * leave this undefined; the hook constructs the manager with the real
    * RPC client + SDK.
@@ -84,6 +93,7 @@ export function useConversationalAgent(
       });
     managerRef.current = new ConversationalAgentSessionManager({
       fetchSignedUrl,
+      agentId: options.deps?.agentId ?? options.agentId,
       onEvent,
       startSession: options.deps?.startSession,
     });

@@ -43,8 +43,20 @@ export interface SessionManagerDeps {
    * Returns a fresh signed URL + its expiry. In production this hits the
    * Rust core RPC `openhuman.voice_agent_get_signed_url`; tests inject a
    * stub.
+   *
+   * If both `agentId` and `fetchSignedUrl` are provided, `agentId` wins —
+   * the SDK opens a direct WebSocket using the agent's allowlisted origin
+   * auth. Use this for testing before the backend signed-URL relay (Phase 1)
+   * is deployed.
    */
   fetchSignedUrl: () => Promise<SignedUrlResponse>;
+  /**
+   * Direct `agent_id` for SDK-side connection (bypasses the signed-URL
+   * relay). Works as long as the agent's `platform_settings.auth.allowlist`
+   * includes the desktop app's origin (`tauri.localhost` / `localhost`).
+   * Optional; if absent, `fetchSignedUrl` is used.
+   */
+  agentId?: string;
   /**
    * Side-channel for typed events. The React hook folds these into snapshot
    * state via `useSyncExternalStore`.
@@ -100,23 +112,36 @@ export class ConversationalAgentSessionManager {
     this.emit({ kind: 'connecting' });
     addBreadcrumb('state -> connecting');
 
-    let signed: SignedUrlResponse;
-    try {
-      signed = await this.deps.fetchSignedUrl();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log('[voice-agent] fetchSignedUrl failed: %s', message);
-      this.updateSnapshot({ lifecycle: 'error', error: message });
-      this.emit({ kind: 'error', message });
-      addBreadcrumb('state -> error', { stage: 'fetch_signed_url', message });
-      return;
+    // Two connection paths:
+    //   1. `agentId` — direct SDK connection via the agent's allowlisted origin.
+    //      Works without the backend signed-URL relay; ideal for testing now,
+    //      while Phase 1 (`openhuman-afn.3`) is still pending.
+    //   2. `fetchSignedUrl` — hits the Rust core, which in turn hits the
+    //      tinyhumansai backend relay. Required for production server-issued
+    //      auth + cost tracking.
+    const directAgentId = this.deps.agentId?.trim() ?? '';
+    let signed: SignedUrlResponse | null = null;
+    if (!directAgentId) {
+      try {
+        signed = await this.deps.fetchSignedUrl();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log('[voice-agent] fetchSignedUrl failed: %s', message);
+        this.updateSnapshot({ lifecycle: 'error', error: message });
+        this.emit({ kind: 'error', message });
+        addBreadcrumb('state -> error', { stage: 'fetch_signed_url', message });
+        return;
+      }
+      this.expiresAt = signed.expiresAt;
     }
-    this.expiresAt = signed.expiresAt;
 
     const start = this.deps.startSession ?? Conversation.startSession;
+    const sdkOptions: Record<string, unknown> = directAgentId
+      ? { agentId: directAgentId }
+      : { signedUrl: signed!.signedUrl };
     try {
       this.conv = await start({
-        signedUrl: signed.signedUrl,
+        ...(sdkOptions as Parameters<(typeof Conversation)['startSession']>[0]),
         onConnect: ({ conversationId }: { conversationId: string }) => {
           this.startedAt = Date.now();
           this.turnCount = 0;

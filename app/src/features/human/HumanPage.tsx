@@ -6,6 +6,7 @@ import { useAppSelector } from '../../store/hooks';
 import { selectMascotColor } from '../../store/mascotSlice';
 import { YellowMascot } from './Mascot';
 import { useHumanMascot } from './useHumanMascot';
+import { VoiceAgentTester } from './voice/conversationalAgent/VoiceAgentTester';
 
 const SPEAK_REPLIES_KEY = 'human.speakReplies';
 
@@ -34,6 +35,9 @@ const HumanPage = () => {
           background: 'radial-gradient(ellipse at 35% 40%, rgba(74,131,221,0.10), transparent 60%)',
         }}
       />
+
+      {/* Voice-mode tester — Phase 0-3 surface; will be replaced by the full mode toggle in Phase 4. */}
+      <VoiceAgentTester />
 
       {/* Mascot stage — fills the area to the left of the reserved sidebar column. */}
       <div className="absolute inset-y-0 left-0 right-[436px] flex items-center justify-center">
