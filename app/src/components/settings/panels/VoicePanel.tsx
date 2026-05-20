@@ -73,6 +73,15 @@ const VoicePanel = ({ embedded = false }: VoicePanelProps = {}) => {
   const [voiceAgentVoiceId, setVoiceAgentVoiceId] = useState('');
   const [voiceAgentModel, setVoiceAgentModel] = useState<string>(VOICE_AGENT_MODEL_OPTIONS[0].id);
   const voiceAgentSaveTimerRef = useRef<number | null>(null);
+  // Last `update` payload queued by `scheduleVoiceAgentSave`. Held so a
+  // navigation away mid-debounce can flush the save instead of dropping
+  // it. Without this, typing an Agent ID and immediately switching pages
+  // would silently discard the change — the symptom that caused the
+  // app to keep connecting to the fallback test-agent even after the
+  // user configured their own.
+  const voiceAgentPendingUpdateRef = useRef<
+    Parameters<typeof openhumanVoiceAgentConfigSet>[0] | null
+  >(null);
   const [settings, setSettings] = useState<VoiceServerSettings | null>(null);
   const [savedSettings, setSavedSettings] = useState<VoiceServerSettings | null>(null);
   const [serverStatus, setServerStatus] = useState<VoiceServerStatus | null>(null);
@@ -228,13 +237,23 @@ const VoicePanel = ({ embedded = false }: VoicePanelProps = {}) => {
     };
   }, []);
 
-  // Tear down the debounce timer on unmount so a setVoiceAgentConfig firing
-  // after the panel is closed can't race a fresh-mount load.
+  // On unmount: flush any pending debounced save so navigating away
+  // mid-debounce still persists the user's last edit. Fire-and-forget
+  // (we can't await during cleanup) — the in-process core RPC will
+  // complete in the background before the user's next visit reads it.
   useEffect(
     () => () => {
       if (voiceAgentSaveTimerRef.current != null) {
         window.clearTimeout(voiceAgentSaveTimerRef.current);
         voiceAgentSaveTimerRef.current = null;
+      }
+      const pending = voiceAgentPendingUpdateRef.current;
+      voiceAgentPendingUpdateRef.current = null;
+      if (pending) {
+        void openhumanVoiceAgentConfigSet(pending).catch(err => {
+          // Best-effort flush; nothing to surface to a panel that's gone.
+          console.warn('[VoicePanel] flush voice_agent_config_set failed:', err);
+        });
       }
     },
     []
@@ -257,8 +276,13 @@ const VoicePanel = ({ embedded = false }: VoicePanelProps = {}) => {
     if (voiceAgentSaveTimerRef.current != null) {
       window.clearTimeout(voiceAgentSaveTimerRef.current);
     }
+    // Remember the pending payload so unmount can flush it instead of
+    // silently dropping the save when the user navigates away within
+    // the debounce window.
+    voiceAgentPendingUpdateRef.current = update;
     voiceAgentSaveTimerRef.current = window.setTimeout(() => {
       voiceAgentSaveTimerRef.current = null;
+      voiceAgentPendingUpdateRef.current = null;
       void persistVoiceAgentConfig(update);
     }, VOICE_AGENT_DEBOUNCE_MS);
   };
