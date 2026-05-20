@@ -165,6 +165,68 @@ describe('ConversationalAgentSessionManager', () => {
     expect(events.filter(e => e.kind === 'connecting')).toHaveLength(1);
   });
 
+  it('forwards clientTools into the SDK options at connect() time', async () => {
+    let lastOpts: Record<string, unknown> | null = null;
+    const startSession = (async (opts: Record<string, unknown>) => {
+      lastOpts = opts;
+      return {
+        endSession: vi.fn().mockResolvedValue(undefined),
+        setMicMuted: vi.fn(),
+      };
+    }) as never;
+    const tools = { chat_with_openhuman: async () => 'hi' };
+    const manager = new ConversationalAgentSessionManager({
+      fetchSignedUrl: async () => ({ signedUrl: 'wss://t', expiresAt: 1 }),
+      clientTools: tools,
+      onEvent: () => {},
+      startSession,
+    });
+    await manager.connect();
+    expect(lastOpts).not.toBeNull();
+    expect((lastOpts as unknown as { clientTools?: unknown }).clientTools).toBe(tools);
+  });
+
+  it('does not set clientTools on the SDK options when none are provided', async () => {
+    let lastOpts: Record<string, unknown> | null = null;
+    const startSession = (async (opts: Record<string, unknown>) => {
+      lastOpts = opts;
+      return {
+        endSession: vi.fn().mockResolvedValue(undefined),
+        setMicMuted: vi.fn(),
+      };
+    }) as never;
+    const manager = new ConversationalAgentSessionManager({
+      fetchSignedUrl: async () => ({ signedUrl: 'wss://t', expiresAt: 1 }),
+      onEvent: () => {},
+      startSession,
+    });
+    await manager.connect();
+    expect(lastOpts).not.toBeNull();
+    expect(Object.prototype.hasOwnProperty.call(lastOpts, 'clientTools')).toBe(false);
+  });
+
+  it('setClientTools replaces the override before next connect', async () => {
+    let lastOpts: Record<string, unknown> | null = null;
+    const startSession = (async (opts: Record<string, unknown>) => {
+      lastOpts = opts;
+      return {
+        endSession: vi.fn().mockResolvedValue(undefined),
+        setMicMuted: vi.fn(),
+      };
+    }) as never;
+    const initial = { a: async () => '1' };
+    const updated = { b: async () => '2' };
+    const manager = new ConversationalAgentSessionManager({
+      fetchSignedUrl: async () => ({ signedUrl: 'wss://t', expiresAt: 1 }),
+      clientTools: initial,
+      onEvent: () => {},
+      startSession,
+    });
+    manager.setClientTools(updated);
+    await manager.connect();
+    expect((lastOpts as unknown as { clientTools?: unknown }).clientTools).toBe(updated);
+  });
+
   it('disconnect from idle is a no-op (stays idle, no event)', async () => {
     const { manager, events } = buildManager();
     await manager.disconnect();

@@ -55,6 +55,13 @@ export interface UseConversationalAgentOptions {
    */
   voiceId?: string;
   /**
+   * Phase 5 brain bridge — client tools the ElevenLabs agent invokes
+   * inside our app. See `clientTools.ts` for the canonical four-tool
+   * bridge to OpenHuman's orchestrator. Forwarded verbatim into the SDK
+   * `clientTools` option at `connect()` time.
+   */
+  clientTools?: SessionManagerDeps['clientTools'];
+  /**
    * Test-only: inject a fully-formed deps bag. In production callers should
    * leave this undefined; the hook constructs the manager with the real
    * RPC client + SDK.
@@ -102,6 +109,7 @@ export function useConversationalAgent(
       fetchSignedUrl,
       agentId: options.deps?.agentId ?? options.agentId,
       voiceId: options.deps?.voiceId ?? options.voiceId,
+      clientTools: options.deps?.clientTools ?? options.clientTools,
       onEvent,
       startSession: options.deps?.startSession,
     });
@@ -115,12 +123,16 @@ export function useConversationalAgent(
   // them mid-session has no effect until the next reconnect.
   const liveVoiceId = options.deps?.voiceId ?? options.voiceId;
   const liveAgentId = options.deps?.agentId ?? options.agentId;
+  const liveClientTools = options.deps?.clientTools ?? options.clientTools;
   useEffect(() => {
     manager.setVoiceId(liveVoiceId);
   }, [manager, liveVoiceId]);
   useEffect(() => {
     manager.setAgentId(liveAgentId);
   }, [manager, liveAgentId]);
+  useEffect(() => {
+    manager.setClientTools(liveClientTools);
+  }, [manager, liveClientTools]);
 
   // Tear down on unmount so a hot-reloaded page doesn't leak the WebSocket.
   useEffect(() => {

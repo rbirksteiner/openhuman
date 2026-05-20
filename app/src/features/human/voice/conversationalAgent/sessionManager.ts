@@ -2,8 +2,13 @@ import * as Sentry from '@sentry/react';
 import { Conversation } from '@elevenlabs/client';
 import debug from 'debug';
 
-import type { AgentEvent, ConversationalAgentState, SignedUrlResponse } from './types';
-import { DISCONNECT_REASON, INITIAL_CONVERSATIONAL_AGENT_STATE } from './types';
+import {
+  DISCONNECT_REASON,
+  INITIAL_CONVERSATIONAL_AGENT_STATE,
+  type AgentEvent,
+  type ConversationalAgentState,
+  type SignedUrlResponse,
+} from './types';
 
 const log = debug('openhuman:voice-agent:session');
 
@@ -75,6 +80,21 @@ export interface SessionManagerDeps {
    * `Conversation.startSession` here. Defaults to the real SDK.
    */
   startSession?: (typeof Conversation)['startSession'];
+  /**
+   * Phase 5 brain bridge — client-side tools the ElevenLabs agent invokes
+   * inside our running app. Matches the `ClientToolsConfig.clientTools`
+   * shape from `@elevenlabs/client/dist/BaseConversation.d.ts`. Forwarded
+   * verbatim into `sdkOptions.clientTools` at `connect()` time. Omit to
+   * keep the SDK in its default "no tools" configuration.
+   *
+   * Sampled at `connect()` time (so the React hook can update them via
+   * {@link ConversationalAgentSessionManager.setClientTools} without
+   * reconstructing the manager).
+   */
+  clientTools?: Record<
+    string,
+    (parameters: unknown) => Promise<string | number | void> | string | number | void
+  >;
 }
 
 type ActiveConversation = Awaited<ReturnType<(typeof Conversation)['startSession']>>;
@@ -93,11 +113,13 @@ export class ConversationalAgentSessionManager {
   // (which would drop subscribe listeners + active conversation).
   private voiceIdOverride: string | undefined;
   private agentIdOverride: string | undefined;
+  private clientToolsOverride: SessionManagerDeps['clientTools'];
 
   constructor(deps: SessionManagerDeps) {
     this.deps = deps;
     this.voiceIdOverride = deps.voiceId;
     this.agentIdOverride = deps.agentId;
+    this.clientToolsOverride = deps.clientTools;
   }
 
   /**
@@ -118,6 +140,16 @@ export class ConversationalAgentSessionManager {
    */
   setAgentId(agentId: string | undefined): void {
     this.agentIdOverride = agentId?.trim() || undefined;
+  }
+
+  /**
+   * Replace the client-tools map the next `connect()` will forward to the
+   * SDK. Same caveat as the other setters: changing tools while a session
+   * is live doesn't migrate the running connection (the SDK binds tools at
+   * `startSession` time). Disconnect + reconnect to apply.
+   */
+  setClientTools(clientTools: SessionManagerDeps['clientTools']): void {
+    this.clientToolsOverride = clientTools;
   }
 
   /** External-store API consumed by `useSyncExternalStore`. */
@@ -188,6 +220,18 @@ export class ConversationalAgentSessionManager {
         tts: { voiceId },
       };
       log('[voice-agent] connect with voice override voice_id=%s', voiceId);
+    }
+    // Phase 5 brain bridge: attach client tools if the caller provided any.
+    // We deliberately don't set an empty `clientTools` key when none were
+    // configured — the SDK type still permits a missing key, and passing
+    // `{}` would clobber any defaults the SDK or agent definition supplies.
+    if (this.clientToolsOverride && Object.keys(this.clientToolsOverride).length > 0) {
+      sdkOptions.clientTools = this.clientToolsOverride;
+      log(
+        '[voice-agent] connect with %d client tool(s): %s',
+        Object.keys(this.clientToolsOverride).length,
+        Object.keys(this.clientToolsOverride).join(', ')
+      );
     }
     try {
       this.conv = await start({
