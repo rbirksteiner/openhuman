@@ -463,6 +463,37 @@ pub enum DomainEvent {
     /// detection (already redacted by the call site) — surfaced to logs,
     /// never to Sentry or the UI verbatim.
     SessionExpired { source: String, reason: String },
+
+    // ── Meet ────────────────────────────────────────────────────────────
+    /// The chat-agent (or any in-process caller) requests that the Tauri
+    /// shell open the Meet CEF window for `meet_url` and have the bot
+    /// join with `display_name`. Subscribed to by `meet_call::mod.rs` on
+    /// app setup; the subscriber invokes `meet_call_open_window` which
+    /// spawns `meet_scanner` + `meet_audio`. Mirrors the two-phase UI
+    /// flow but lets the agent (not just the UI) trigger the join.
+    MeetCallRequested {
+        request_id: String,
+        meet_url: String,
+        display_name: String,
+    },
+
+    // ── VoiceAgent ──────────────────────────────────────────────────────
+    /// A voice-agent ElevenLabs WebSocket session has started (WS handshake
+    /// succeeded). Published by `openhuman.voice_agent_session_started`.
+    VoiceAgentSessionStarted { conversation_id: String },
+    /// A voice-agent session has ended (clean disconnect or error).
+    /// Published by `openhuman.voice_agent_session_ended`.
+    VoiceAgentSessionEnded {
+        conversation_id: String,
+        duration_ms: u64,
+        turn_count: u32,
+    },
+    /// An unrecoverable error occurred in the voice-agent stack
+    /// (e.g. backend unavailable, signed-URL fetch failed after retry).
+    VoiceAgentError {
+        conversation_id: String,
+        message: String,
+    },
 }
 
 impl DomainEvent {
@@ -539,6 +570,12 @@ impl DomainEvent {
             | Self::HealthRestarted { .. } => "system",
 
             Self::SessionExpired { .. } => "auth",
+
+            Self::MeetCallRequested { .. } => "meet",
+
+            Self::VoiceAgentSessionStarted { .. }
+            | Self::VoiceAgentSessionEnded { .. }
+            | Self::VoiceAgentError { .. } => "voice_agent",
         }
     }
 }

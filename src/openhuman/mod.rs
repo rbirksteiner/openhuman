@@ -81,6 +81,7 @@ pub mod update;
 pub mod util;
 pub mod vault;
 pub mod voice;
+pub mod voice_agent;
 pub mod wallet;
 pub mod webhooks;
 pub mod webview_accounts;

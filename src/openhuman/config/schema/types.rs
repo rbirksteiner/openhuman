@@ -285,6 +285,12 @@ pub struct Config {
     #[serde(default)]
     pub meet: MeetConfig,
 
+    /// ElevenLabs Conversational Agent settings.
+    /// Env-override prefix: `OPENHUMAN_VOICE_AGENT_*`.
+    /// See [`crate::openhuman::voice_agent::types::VoiceAgentConfig`].
+    #[serde(default)]
+    pub voice_agent: crate::openhuman::voice_agent::types::VoiceAgentConfig,
+
     /// Whether the user has completed the **React UI** onboarding flow.
     ///
     /// Set by `OnboardingOverlay.tsx::handleDone` and the multi-step
@@ -573,6 +579,7 @@ impl Default for Config {
             update: UpdateConfig::default(),
             dictation: DictationConfig::default(),
             meet: MeetConfig::default(),
+            voice_agent: crate::openhuman::voice_agent::types::VoiceAgentConfig::default(),
             onboarding_completed: false,
             chat_onboarding_completed: false,
         }

@@ -1643,6 +1643,52 @@ impl Config {
             );
             self.context.tool_result_budget_bytes = self.agent.tool_result_budget_bytes;
         }
+
+        // ── Voice agent overrides ──────────────────────────────────────────
+        if let Some(flag) = env.get("OPENHUMAN_VOICE_AGENT_ENABLED") {
+            if let Some(enabled) = parse_env_bool("OPENHUMAN_VOICE_AGENT_ENABLED", &flag) {
+                self.voice_agent.enabled = enabled;
+            }
+        }
+        if let Some(val) = env.get("OPENHUMAN_VOICE_AGENT_AGENT_ID") {
+            let trimmed = val.trim();
+            self.voice_agent.agent_id = if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            };
+        }
+        if let Some(val) = env.get("OPENHUMAN_VOICE_AGENT_VOICE_ID") {
+            let trimmed = val.trim();
+            self.voice_agent.voice_id = if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            };
+        }
+        if let Some(val) = env.get("OPENHUMAN_VOICE_AGENT_MODEL") {
+            let trimmed = val.trim();
+            if !trimmed.is_empty() {
+                self.voice_agent.model = trimmed.to_string();
+            }
+        }
+        if let Some(val) = env.get("OPENHUMAN_VOICE_AGENT_TURN_EAGERNESS") {
+            let trimmed = val.trim();
+            if matches!(trimmed, "patient" | "normal" | "eager") {
+                self.voice_agent.turn_eagerness = trimmed.to_string();
+            } else if !trimmed.is_empty() {
+                tracing::warn!(
+                    value = trimmed,
+                    "ignoring invalid OPENHUMAN_VOICE_AGENT_TURN_EAGERNESS \
+                     (valid: patient, normal, eager)"
+                );
+            }
+        }
+        if let Some(flag) = env.get("OPENHUMAN_VOICE_AGENT_AUTO_RECONNECT") {
+            if let Some(enabled) = parse_env_bool("OPENHUMAN_VOICE_AGENT_AUTO_RECONNECT", &flag) {
+                self.voice_agent.auto_reconnect = enabled;
+            }
+        }
     }
 
     pub async fn save(&self) -> Result<()> {

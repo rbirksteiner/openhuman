@@ -453,6 +453,37 @@ fn all_variants_have_correct_domain() {
             },
             "auth",
         ),
+        // Meet
+        (
+            DomainEvent::MeetCallRequested {
+                request_id: "req-1".into(),
+                meet_url: "https://meet.google.com/abc-defg-hij".into(),
+                display_name: "OpenHuman".into(),
+            },
+            "meet",
+        ),
+        // VoiceAgent
+        (
+            DomainEvent::VoiceAgentSessionStarted {
+                conversation_id: "el-conv-abc".into(),
+            },
+            "voice_agent",
+        ),
+        (
+            DomainEvent::VoiceAgentSessionEnded {
+                conversation_id: "el-conv-abc".into(),
+                duration_ms: 42_000,
+                turn_count: 7,
+            },
+            "voice_agent",
+        ),
+        (
+            DomainEvent::VoiceAgentError {
+                conversation_id: "el-conv-abc".into(),
+                message: "backend route not yet deployed".into(),
+            },
+            "voice_agent",
+        ),
     ];
 
     for (event, expected_domain) in cases {
