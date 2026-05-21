@@ -33,6 +33,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
+# ── Locate cargo ─────────────────────────────────────────────────────────────
+# pnpm-spawned subshells don't inherit interactive PATH on macOS, so rustup's
+# `~/.cargo/bin` is typically missing. Source `cargo env` if available, then
+# fall back to a direct PATH prepend so the build below can find cargo.
+if ! command -v cargo >/dev/null 2>&1; then
+  if [[ -f "$HOME/.cargo/env" ]]; then
+    # shellcheck disable=SC1091
+    source "$HOME/.cargo/env"
+  fi
+fi
+if ! command -v cargo >/dev/null 2>&1; then
+  if [[ -x "$HOME/.cargo/bin/cargo" ]]; then
+    export PATH="$HOME/.cargo/bin:$PATH"
+  fi
+fi
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "[dev-fast] ERROR: cargo not on PATH. Install rust via https://rustup.rs and re-run." >&2
+  exit 1
+fi
+
 # ── Configuration ────────────────────────────────────────────────────────────
 # Dedicated workspace so the desktop app's `~/.openhuman` config is not
 # disturbed and quick experiments don't pollute long-running state. Override
@@ -41,7 +61,12 @@ export OPENHUMAN_WORKSPACE="${OPENHUMAN_WORKSPACE:-$HOME/.openhuman-dev-fast}"
 export OPENHUMAN_CORE_PORT="${OPENHUMAN_CORE_PORT:-7788}"
 
 CORE_BIN="$ROOT_DIR/target/debug/openhuman-core"
-TOKEN_FILE="$OPENHUMAN_WORKSPACE/core.token"
+# The standalone core always writes its bearer token to
+# `~/.openhuman/core.token` (via `default_root_openhuman_dir()` in
+# `src/openhuman/config/schema/load.rs`), independent of
+# `OPENHUMAN_WORKSPACE`. The workspace dir controls config + data
+# storage; the token lives at the shared default.
+TOKEN_FILE="$HOME/.openhuman/core.token"
 CORE_LOG="$ROOT_DIR/target/dev-fast-core.log"
 PID_FILE="$ROOT_DIR/target/dev-fast-core.pid"
 
@@ -89,15 +114,27 @@ cargo build --manifest-path "$ROOT_DIR/Cargo.toml" --bin openhuman-core
 echo "[dev-fast] starting standalone core on http://127.0.0.1:$OPENHUMAN_CORE_PORT"
 echo "[dev-fast] workspace: $OPENHUMAN_WORKSPACE"
 echo "[dev-fast] log:       $CORE_LOG"
-rm -f "$TOKEN_FILE"
 "$CORE_BIN" serve > "$CORE_LOG" 2>&1 &
 CORE_PID=$!
 echo "$CORE_PID" > "$PID_FILE"
 
-# ── 3. Wait for token file (= core is listening) ─────────────────────────────
+# ── 3. Wait for the HTTP server to accept connections ────────────────────────
+# Don't gate on the token file's existence — the desktop app may also
+# touch `~/.openhuman/core.token`, and deleting it would break a running
+# desktop session. Instead probe the port: once `curl` succeeds (even with
+# 401), the standalone core has booted, opened the listener, and rewritten
+# the token file in `init_rpc_token`. The freshest token in that file is
+# guaranteed to be ours.
 echo -n "[dev-fast] waiting for core to be ready"
 for _ in {1..60}; do
-  if [[ -f "$TOKEN_FILE" ]]; then
+  # `curl --fail` returns 0 only on 2xx, which is what core.ping gives
+  # us when unauthenticated discovery succeeds. Some endpoints will 401
+  # without a token; either way the TCP listener is alive when curl can
+  # complete the request, so we accept any non-network exit code.
+  if curl -fsS --max-time 1 "http://127.0.0.1:$OPENHUMAN_CORE_PORT/rpc" \
+       -H 'Content-Type: application/json' \
+       --data '{"jsonrpc":"2.0","id":1,"method":"core.ping","params":{}}' \
+       >/dev/null 2>&1; then
     echo " ✓"
     break
   fi
@@ -110,9 +147,11 @@ for _ in {1..60}; do
   echo -n "."
   sleep 0.5
 done
+
 if [[ ! -f "$TOKEN_FILE" ]]; then
   echo
-  echo "[dev-fast] ERROR: core did not produce $TOKEN_FILE within 30s" >&2
+  echo "[dev-fast] ERROR: core listener is up but $TOKEN_FILE missing" >&2
+  echo "[dev-fast] expected the standalone core to write a token here." >&2
   tail -40 "$CORE_LOG" >&2
   exit 1
 fi
