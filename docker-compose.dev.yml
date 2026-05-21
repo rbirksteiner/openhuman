@@ -1,0 +1,85 @@
+# OpenHuman Core — local cloud-shaped dev stack.
+#
+# Brings up three services for developing the cloud-hosted openhuman-core:
+#   postgres   — persistent Postgres 17 database (port 5432)
+#   core       — openhuman-core binary built from the repo Dockerfile
+#   cloudflared — quick tunnel so ElevenLabs Cloud can reach the local core
+#
+# Quick start:
+#   1. cp .env.example .env
+#      Fill in at minimum:
+#        OPENHUMAN_CORE_TOKEN=<openssl rand -hex 32>
+#        OPENHUMAN_ELEVENLABS_WEBHOOK_SECRET=<openssl rand -hex 32>
+#   2. docker compose -f docker-compose.dev.yml up
+#   3. Find the cloudflared public URL:
+#        docker compose -f docker-compose.dev.yml logs cloudflared | grep trycloudflare
+#      It looks like: https://random-words.trycloudflare.com
+#   4. Paste that URL into the ElevenLabs dashboard:
+#        Custom LLM URL: https://random-words.trycloudflare.com/elevenlabs/custom-llm
+#        Webhook tools:  https://random-words.trycloudflare.com/elevenlabs/tools/<name>
+#      Set the same OPENHUMAN_ELEVENLABS_WEBHOOK_SECRET in both .env and
+#      the ElevenLabs "Webhook Secret" field.
+#
+# The cloudflared URL changes on every restart (quick-tunnel, no account
+# needed). For a stable URL create a named tunnel with `cloudflared tunnel`.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: openhuman
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: openhuman
+    ports:
+      - "5432:5432"
+    volumes:
+      - openhuman_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openhuman"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Override host so the container is reachable from the tunnel service.
+      OPENHUMAN_CORE_HOST: 0.0.0.0
+      OPENHUMAN_CORE_PORT: "7788"
+      OPENHUMAN_WORKSPACE: /workspace
+      # Point the core at the Postgres service for future storage migration.
+      OPENHUMAN_DATABASE_URL: postgres://openhuman:dev@postgres:5432/openhuman
+      # Passed through from .env so ElevenLabs webhook routes are protected.
+      OPENHUMAN_ELEVENLABS_WEBHOOK_SECRET: ${OPENHUMAN_ELEVENLABS_WEBHOOK_SECRET:-}
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "${OPENHUMAN_CORE_PORT:-7788}:7788"
+    volumes:
+      - ./.openhuman-docker:/workspace
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:7788/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    # quick-tunnel — no Cloudflare account required.
+    # The public URL is printed in the container logs on startup.
+    command: tunnel --no-autoupdate --url http://core:7788
+    depends_on:
+      core:
+        condition: service_healthy
+    restart: on-failure
+
+volumes:
+  openhuman_pg:
+    name: openhuman_pg_dev
