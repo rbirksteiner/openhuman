@@ -198,6 +198,15 @@ export function getDefaultRpcUrl(): string {
  * so the caller can fall back to the local sidecar's per-process token.
  */
 export function getStoredCoreToken(): string | null {
+  // Fast-dev mode: when Vite is launched by `pnpm dev:fast`, the script
+  // exports `VITE_OPENHUMAN_CORE_TOKEN` set to the freshly-minted token
+  // the standalone core just wrote to `core.token`. That token rotates on
+  // every core restart, so it MUST win over a stale value in localStorage
+  // from an earlier session — otherwise every restart needs a manual
+  // paste in the welcome picker. Production builds never set this env-var,
+  // so the localStorage path remains the source of truth there.
+  const envToken = (import.meta.env.VITE_OPENHUMAN_CORE_TOKEN as string | undefined)?.trim();
+  if (envToken) return envToken;
   try {
     const stored = localStorage.getItem(CORE_TOKEN_STORAGE_KEY);
     if (stored && stored.trim().length > 0) {
@@ -206,14 +215,6 @@ export function getStoredCoreToken(): string | null {
   } catch {
     console.warn('[configPersistence] Unable to access localStorage');
   }
-  // Fast-dev fallback: when running Vite against a standalone-core (`pnpm
-  // dev:fast`), localStorage is empty on first load. Vite inlines
-  // `VITE_OPENHUMAN_CORE_TOKEN` at build time so the bridge can connect
-  // to the standalone core without an interactive paste on every reload.
-  // Production builds without this env-var fall through to `null` (the
-  // existing welcome-page picker flow stays the source of truth).
-  const envToken = (import.meta.env.VITE_OPENHUMAN_CORE_TOKEN as string | undefined)?.trim();
-  if (envToken) return envToken;
   return null;
 }
 
