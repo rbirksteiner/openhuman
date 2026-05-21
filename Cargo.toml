@@ -93,6 +93,7 @@ thiserror = "2.0"
 ring = "0.17"
 prost = { version = "0.14", default-features = false }
 postgres = { version = "0.19", features = ["with-chrono-0_4"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 chrono-tz = "0.10"
 dialoguer = { version = "0.12", features = ["fuzzy-select"] }
 dotenvy = "0.15"

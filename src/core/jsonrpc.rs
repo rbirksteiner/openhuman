@@ -845,6 +845,15 @@ async fn run_server_inner(
         }
     }
 
+    // Postgres storage backend — connection plumbing (Phase 1).
+    // Only active when OPENHUMAN_STORAGE_BACKEND=postgres.
+    // SQLite / TOML paths are unchanged when the flag is absent.
+    if let Err(e) =
+        crate::openhuman::postgres_store::init_postgres().await
+    {
+        log::error!("[boot] postgres_store init failed: {e:#}");
+    }
+
     let (resolved_port, port_source) = match port {
         Some(p) => (p, "CLI --port"),
         None => (

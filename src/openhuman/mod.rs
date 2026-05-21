@@ -53,6 +53,7 @@ pub mod migrations;
 pub mod notifications;
 pub mod overlay;
 pub mod people;
+pub mod postgres_store;
 pub mod prompt_injection;
 pub mod provider_surfaces;
 pub mod redirect_links;
