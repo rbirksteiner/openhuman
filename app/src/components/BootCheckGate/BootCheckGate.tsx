@@ -103,8 +103,16 @@ function ModePicker({ onConfirm }: PickerProps) {
   // the render path below.
   const isDesktop = isTauri();
   const [selected, setSelected] = useState<'local' | 'cloud'>(isDesktop ? 'local' : 'cloud');
-  const [cloudUrl, setCloudUrl] = useState('');
-  const [cloudToken, setCloudToken] = useState('');
+  // Pre-fill the cloud picker from build-time env-vars when present. This is
+  // the path `pnpm dev:fast` takes: the helper script exports the standalone
+  // core's URL + freshly-minted token as VITE_OPENHUMAN_CORE_RPC_URL /
+  // VITE_OPENHUMAN_CORE_TOKEN before launching Vite, so the picker is one
+  // click ("Continue") instead of a paste of two long strings on every
+  // restart. Production builds without these env-vars start empty as before.
+  const envRpcUrl = (import.meta.env.VITE_OPENHUMAN_CORE_RPC_URL as string | undefined)?.trim();
+  const envToken = (import.meta.env.VITE_OPENHUMAN_CORE_TOKEN as string | undefined)?.trim();
+  const [cloudUrl, setCloudUrl] = useState(envRpcUrl ?? '');
+  const [cloudToken, setCloudToken] = useState(envToken ?? '');
   const [urlError, setUrlError] = useState<string | null>(null);
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [testStatus, setTestStatus] = useState<TestStatus>({ kind: 'idle' });
