@@ -59,6 +59,12 @@ const PUBLIC_PATHS: &[&str] = &[
     "/ws/dictation",
 ];
 
+/// Path prefixes whose auth is handled by a sub-router's own middleware
+/// (e.g. shared-secret for ElevenLabs). The bearer-token check must not
+/// gate these, otherwise the ElevenLabs Cloud service — which cannot
+/// know the per-launch OPENHUMAN_CORE_TOKEN — would always receive 401.
+const PUBLIC_PREFIXES: &[&str] = &["/elevenlabs/"];
+
 /// The environment variable the Tauri shell sets before spawning the core.
 ///
 /// When this variable is present the core uses its value as the RPC token
@@ -129,7 +135,11 @@ pub async fn rpc_auth_middleware(req: axum::extract::Request, next: Next) -> Res
     let path = req.uri().path().to_string();
 
     // CORS preflight and public utility paths bypass auth.
-    if req.method() == Method::OPTIONS || PUBLIC_PATHS.contains(&path.as_str()) {
+    let is_public_prefix = PUBLIC_PREFIXES.iter().any(|p| path.starts_with(p));
+    if req.method() == Method::OPTIONS
+        || PUBLIC_PATHS.contains(&path.as_str())
+        || is_public_prefix
+    {
         return next.run(req).await;
     }
 

@@ -33,6 +33,7 @@ pub mod cron;
 pub mod desktop_companion;
 pub mod dev_paths;
 pub mod doctor;
+pub mod elevenlabs_bridge;
 pub mod embeddings;
 pub mod encryption;
 pub mod health;

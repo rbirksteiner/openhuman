@@ -557,6 +557,11 @@ pub fn build_core_http_router(socketio_enabled: bool) -> Router {
         .route("/auth/telegram", get(telegram_auth_handler))
         // OpenAI-compatible inference endpoint (/v1/chat/completions, /v1/models)
         .nest("/v1", crate::openhuman::inference::http::router())
+        // ElevenLabs Custom-LLM + webhook-tool routes.
+        // Auth is handled inside the sub-router via X-ElevenLabs-Secret;
+        // the paths must also be listed in PUBLIC_PATHS in core::auth so
+        // the bearer-token middleware does not gate them first.
+        .nest("/elevenlabs", crate::openhuman::elevenlabs_bridge::build_elevenlabs_router())
         .fallback(not_found_handler)
         .layer(middleware::from_fn(http_request_log_middleware))
         .layer(middleware::from_fn(crate::core::auth::rpc_auth_middleware))
