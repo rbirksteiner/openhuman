@@ -52,8 +52,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      platforms:
-        - linux/amd64
     depends_on:
       postgres:
         condition: service_healthy
