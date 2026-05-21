@@ -1,8 +1,9 @@
 # OpenHuman Core — local cloud-shaped dev stack.
 #
 # Brings up three services for developing the cloud-hosted openhuman-core:
-#   postgres   — persistent Postgres 17 database (port 5432)
+#   postgres   — persistent Postgres 17 database (container port 5432)
 #   core       — openhuman-core binary built from the repo Dockerfile
+#                (container port 7788, host port 17788 by default)
 #   cloudflared — quick tunnel so ElevenLabs Cloud can reach the local core
 #
 # Quick start:
@@ -72,16 +73,24 @@ services:
       # Override host so the container is reachable from the tunnel service.
       OPENHUMAN_CORE_HOST: 0.0.0.0
       OPENHUMAN_CORE_PORT: "7788"
-      OPENHUMAN_WORKSPACE: /workspace
+      # Use a container path whose basename is not literally "workspace".
+      # The core treats paths named "workspace" as legacy workspace subdirs and
+      # resolves their config dir to the parent .openhuman directory; mounting at
+      # /openhuman-data keeps config.toml and runtime data inside the bind mount.
+      OPENHUMAN_WORKSPACE: /openhuman-data
       # Point the core at the Postgres service for future storage migration.
       OPENHUMAN_DATABASE_URL: postgres://openhuman:dev@postgres:5432/openhuman
       # Passed through from .env so ElevenLabs webhook routes are protected.
       OPENHUMAN_ELEVENLABS_WEBHOOK_SECRET: ${OPENHUMAN_ELEVENLABS_WEBHOOK_SECRET:-}
       RUST_LOG: ${RUST_LOG:-info}
+    # Publish the container's 7788 on a different host port by default.
+    # Local desktop/Tauri dev cores often bind 127.0.0.1:7788; using 17788
+    # prevents host curls from being silently handled by a stale local core.
+    # Cloudflared still reaches the service on the Docker network at core:7788.
     ports:
-      - "${OPENHUMAN_CORE_PORT:-7788}:7788"
+      - "${OPENHUMAN_CORE_HOST_PORT:-17788}:7788"
     volumes:
-      - ./.openhuman-docker:/workspace
+      - ./.openhuman-docker:/openhuman-data
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:7788/health"]
       interval: 10s

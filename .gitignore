@@ -30,6 +30,9 @@ dist-web
 .env.local
 .env.*.local
 
+# Docker dev-stack runtime state
+.openhuman-docker/
+
 # pnpm local store (created when --store-dir points into the repo)
 .pnpm-store/
 
@@ -100,3 +103,8 @@ app/test/e2e/.cache/
 .cache/cargo-install/
 test-map.md
 .test-gap-analysis.md
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key

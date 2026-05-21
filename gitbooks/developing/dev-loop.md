@@ -70,7 +70,7 @@ Three services start:
 | Service | Role | Port |
 |---|---|---|
 | `postgres` | Postgres 17 — ready before `core` starts | 5432 |
-| `core` | openhuman-core binary (built from `Dockerfile`) | 7788 |
+| `core` | openhuman-core binary (built from `Dockerfile`) | container `7788`, host `17788` by default |
 | `cloudflared` | Quick tunnel — public HTTPS URL for ElevenLabs | — |
 
 ### Find the cloudflared tunnel URL
@@ -119,6 +119,12 @@ In the [ElevenLabs agent dashboard](https://elevenlabs.io/app/conversational-ai)
 
 ### Postgres storage backend
 
+The `core` service mounts local runtime state at `./.openhuman-docker` and
+sets `OPENHUMAN_WORKSPACE=/openhuman-data` inside the container. The mount
+path intentionally is not named `/workspace`: the core keeps a legacy heuristic
+where paths ending in `workspace` are treated as workspace subdirectories whose
+config lives in a parent `.openhuman` directory.
+
 The `core` service receives `OPENHUMAN_DATABASE_URL` pointing at the
 compose-managed Postgres. To activate the Postgres storage path:
 
@@ -136,6 +142,9 @@ the default SQLite/TOML stores.
 ### Useful commands
 
 ```bash
+# Smoke-test the Docker core from the host (uses the collision-safe host port)
+curl -fsS http://127.0.0.1:${OPENHUMAN_CORE_HOST_PORT:-17788}/health
+
 # Tail all logs
 docker compose -f docker-compose.dev.yml logs -f
 
