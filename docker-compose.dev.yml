@@ -30,8 +30,17 @@ services:
       POSTGRES_USER: openhuman
       POSTGRES_PASSWORD: dev
       POSTGRES_DB: openhuman
-    ports:
-      - "5432:5432"
+    # Postgres is only reachable from the Docker network — the core
+    # service connects via the `postgres:5432` hostname. No host port
+    # mapping by design: a published 5432 invites every local tool
+    # (Postgres.app, DataGrip, IDE auto-probe, monitoring) to hammer it
+    # with the default `postgres` user, drowning the log in scram-sha-256
+    # auth-fails. To inspect the DB from your host, use
+    #   docker compose -f docker-compose.dev.yml exec postgres \
+    #     psql -U openhuman openhuman
+    # or temporarily add a port mapping under an override file.
+    expose:
+      - "5432"
     volumes:
       - openhuman_pg:/var/lib/postgresql/data
     healthcheck:
@@ -52,6 +61,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
     depends_on:
       postgres:
         condition: service_healthy
