@@ -100,7 +100,11 @@ describe('buildClientTools — chat_with_openhuman', () => {
 
     const result = await pending;
     expect(result).toBe('Hello world');
-    expect(chat.lastSent()).toEqual({ threadId: 'voice-test', message: 'hi human' });
+    expect(chat.lastSent()).toEqual({
+      threadId: 'voice-test',
+      message: 'hi human',
+      model: 'gpt-4.1-nano',
+    });
     // Listener should be cleaned up after settling.
     expect(chat.activeListenerCount()).toBe(0);
   });

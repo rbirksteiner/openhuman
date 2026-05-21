@@ -206,6 +206,14 @@ export function getStoredCoreToken(): string | null {
   } catch {
     console.warn('[configPersistence] Unable to access localStorage');
   }
+  // Fast-dev fallback: when running Vite against a standalone-core (`pnpm
+  // dev:fast`), localStorage is empty on first load. Vite inlines
+  // `VITE_OPENHUMAN_CORE_TOKEN` at build time so the bridge can connect
+  // to the standalone core without an interactive paste on every reload.
+  // Production builds without this env-var fall through to `null` (the
+  // existing welcome-page picker flow stays the source of truth).
+  const envToken = (import.meta.env.VITE_OPENHUMAN_CORE_TOKEN as string | undefined)?.trim();
+  if (envToken) return envToken;
   return null;
 }
 

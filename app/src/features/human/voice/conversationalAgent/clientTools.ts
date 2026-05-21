@@ -42,6 +42,18 @@ const DEFAULT_MEMORY_NAMESPACE = 'voice-agent';
 /** Hard ceiling on `chat_with_openhuman` so a stalled core can't deadlock the SDK. */
 const CHAT_TOOL_TIMEOUT_MS = 30_000;
 
+/**
+ * Model the brain bridge dispatches `channel_web_chat` against. Voice mode
+ * needs round-trip latency comparable to ElevenLabs's hosted LLM (~1s) so
+ * the conversation feels natural; the default `chat-v1` tier (Sonnet on
+ * most backends) is 3-5× slower per turn. `gpt-4.1-nano` is currently
+ * the fastest cloud model with usable conversational quality (~300ms
+ * TTFB). Override via {@link ClientToolsDeps.modelOverride} if your
+ * backend doesn't have OpenAI configured — Haiku 4.5, Gemini 2.5 Flash,
+ * and DeepSeek v4-flash are the next-best options in latency order.
+ */
+const DEFAULT_VOICE_MODEL = 'gpt-4.1-nano';
+
 /** Recall sane default — pass-through the spec says "limit 5", we map to `max_chunks=5`. */
 const DEFAULT_RECALL_LIMIT = 5;
 
@@ -58,6 +70,14 @@ export interface ClientToolsDeps {
    * Optional; defaults to {@link DEFAULT_MEMORY_NAMESPACE}.
    */
   memoryNamespace?: string;
+  /**
+   * Override the model the brain bridge runs `channel_web_chat` against.
+   * Optional; defaults to {@link DEFAULT_VOICE_MODEL}. Set to an explicit
+   * Claude model id (e.g. `'claude-sonnet-4-6'`) to test latency or quality
+   * tradeoffs against the default. Pass empty string to fall back to the
+   * orchestrator's configured tier model.
+   */
+  modelOverride?: string;
   /** Test seam — defaults to the production `chatSend`. */
   chatSend?: (params: ChatSendParams) => Promise<void>;
   /** Test seam — defaults to the production `subscribeChatEvents`. */
@@ -105,6 +125,9 @@ export function buildClientTools(deps: ClientToolsDeps): VoiceClientTools {
   const timeoutMs = deps.chatToolTimeoutMs ?? CHAT_TOOL_TIMEOUT_MS;
   const namespace = deps.memoryNamespace ?? DEFAULT_MEMORY_NAMESPACE;
   const threadId = deps.threadId;
+  // `''` (explicit empty) means "fall back to the orchestrator's configured
+  // tier model" — useful for benchmarking. `undefined` picks the default.
+  const modelOverride = deps.modelOverride === '' ? undefined : (deps.modelOverride ?? DEFAULT_VOICE_MODEL);
 
   return {
     /**
@@ -125,6 +148,7 @@ export function buildClientTools(deps: ClientToolsDeps): VoiceClientTools {
         message,
         threadId,
         timeoutMs,
+        modelOverride,
         chatSend,
         subscribeChatEvents,
       });
@@ -197,6 +221,7 @@ interface ChatBridgeArgs {
   message: string;
   threadId: string;
   timeoutMs: number;
+  modelOverride?: string;
   chatSend: (params: ChatSendParams) => Promise<void>;
   subscribeChatEvents: (listeners: ChatEventListeners) => () => void;
 }
@@ -216,7 +241,7 @@ interface ChatBridgeArgs {
  * *something* to speak rather than hanging the session forever.
  */
 async function runChatBridge(args: ChatBridgeArgs): Promise<string> {
-  const { message, threadId, timeoutMs, chatSend, subscribeChatEvents } = args;
+  const { message, threadId, timeoutMs, modelOverride, chatSend, subscribeChatEvents } = args;
   return await new Promise<string>(resolve => {
     let requestId: string | null = null;
     let buffered = '';
@@ -277,7 +302,7 @@ async function runChatBridge(args: ChatBridgeArgs): Promise<string> {
 
     // Fire-and-forget send. If it throws synchronously (no socket) settle
     // immediately so the agent doesn't sit on a dead promise.
-    chatSend({ threadId, message }).catch(err => {
+    chatSend({ threadId, message, model: modelOverride }).catch(err => {
       const errMessage = err instanceof Error ? err.message : String(err);
       log('chatSend rejected: %s', errMessage);
       settle(`error: ${errMessage}`);
