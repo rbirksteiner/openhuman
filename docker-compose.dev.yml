@@ -41,9 +41,19 @@ services:
       retries: 30
 
   core:
+    # Forced to linux/amd64 because whisper-rs-sys' ggml SIMD path doesn't
+    # compile cleanly on aarch64 inside Docker (ARM NEON fp16 intrinsics
+    # require compile flags the upstream CMake script doesn't emit
+    # consistently). On Apple Silicon, Docker Desktop with Rosetta 2 runs
+    # this near-native; if you have Rosetta disabled the build is slow but
+    # still works. Long-term fix: make whisper-rs an optional cargo feature
+    # so cloud builds skip it entirely (filed as a follow-up issue).
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
     depends_on:
       postgres:
         condition: service_healthy
