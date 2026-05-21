@@ -20,7 +20,12 @@ use super::types::{CustomLlmRequest, MemoryRecallRequest, MemoryStoreRequest};
 /// Build the `/elevenlabs` axum sub-router.
 pub fn router() -> Router<AppState> {
     Router::new()
+        // ElevenLabs Cloud follows the OpenAI Custom-LLM convention: the
+        // configured URL is the *base*, and the client appends
+        // `/chat/completions` to it before POSTing. Register both the raw
+        // and the appended path so the same handler answers either form.
         .route("/custom-llm", post(custom_llm_handler))
+        .route("/custom-llm/chat/completions", post(custom_llm_handler))
         .route("/tools/current-time", post(current_time_handler))
         .route("/tools/memory-recall", post(memory_recall_handler))
         .route("/tools/memory-store", post(memory_store_handler))

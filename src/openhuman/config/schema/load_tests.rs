@@ -911,6 +911,77 @@ fn env_overlay_auto_update_rpc_mutations_enabled_parses_bool() {
 }
 
 #[test]
+fn env_overlay_provider_routes_and_chat_onboarding_can_be_bootstrapped() {
+    let mut cfg = Config::default();
+    cfg.apply_env_overlay_with(
+        &HashMapEnv::new()
+            .with("OPENHUMAN_CHAT_PROVIDER", " openrouter:openai/gpt-4o-mini ")
+            .with(
+                "OPENHUMAN_AGENTIC_PROVIDER",
+                "openrouter:openai/gpt-4o-mini",
+            )
+            .with(
+                "OPENHUMAN_REASONING_PROVIDER",
+                "openrouter:anthropic/claude-3.5-sonnet",
+            )
+            .with(
+                "OPENHUMAN_CODING_PROVIDER",
+                "openrouter:anthropic/claude-3.5-sonnet",
+            )
+            .with("OPENHUMAN_MEMORY_PROVIDER", "openrouter:openai/gpt-4o-mini")
+            .with("OPENHUMAN_CHAT_ONBOARDING_COMPLETED", "true"),
+    );
+
+    assert_eq!(
+        cfg.chat_provider.as_deref(),
+        Some("openrouter:openai/gpt-4o-mini")
+    );
+    assert_eq!(
+        cfg.agentic_provider.as_deref(),
+        Some("openrouter:openai/gpt-4o-mini")
+    );
+    assert_eq!(
+        cfg.reasoning_provider.as_deref(),
+        Some("openrouter:anthropic/claude-3.5-sonnet")
+    );
+    assert_eq!(
+        cfg.coding_provider.as_deref(),
+        Some("openrouter:anthropic/claude-3.5-sonnet")
+    );
+    assert_eq!(
+        cfg.memory_provider.as_deref(),
+        Some("openrouter:openai/gpt-4o-mini")
+    );
+    assert!(cfg.chat_onboarding_completed);
+}
+
+#[test]
+fn env_overlay_empty_provider_route_does_not_clear_persisted_config() {
+    let mut cfg = Config::default();
+    cfg.chat_provider = Some("openrouter:openai/gpt-4o-mini".to_string());
+    cfg.apply_env_overlay_with(&HashMapEnv::new().with("OPENHUMAN_CHAT_PROVIDER", "   "));
+
+    assert_eq!(
+        cfg.chat_provider.as_deref(),
+        Some("openrouter:openai/gpt-4o-mini")
+    );
+}
+
+#[test]
+fn env_overlay_openrouter_api_key_seeds_provider_entry() {
+    let mut cfg = Config::default();
+    cfg.apply_env_overlay_with(&HashMapEnv::new().with("OPENROUTER_API_KEY", "sk-or-test"));
+
+    let openrouter = cfg
+        .cloud_providers
+        .iter()
+        .find(|provider| provider.slug == "openrouter")
+        .expect("OPENROUTER_API_KEY should seed an openrouter provider entry");
+    assert_eq!(openrouter.endpoint, "https://openrouter.ai/api/v1");
+    assert_eq!(openrouter.auth_style.as_str(), "bearer");
+}
+
+#[test]
 fn env_overlay_empty_lookup_leaves_defaults_intact() {
     // The seam with no env entries should be a no-op on a fresh Config.
     let mut cfg = Config::default();

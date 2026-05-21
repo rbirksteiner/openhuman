@@ -34,6 +34,11 @@ use crate::openhuman::inference::provider::ProviderRuntimeOptions;
 pub const PROVIDER_OPENHUMAN: &str = "openhuman";
 /// Prefix for Ollama-local providers: `"ollama:<model>"`.
 pub const OLLAMA_PROVIDER_PREFIX: &str = "ollama:";
+/// Deployment flag that allows direct, user-supplied providers to run without
+/// an OpenHuman backend app-session JWT. This is intended for self-hosted /
+/// cloud-core deployments where inbound HTTP auth is handled separately and
+/// LLM traffic goes directly to OpenRouter/OpenAI/Anthropic/etc.
+pub const SELF_HOSTED_DIRECT_INFERENCE_ENV_VAR: &str = "OPENHUMAN_SELF_HOSTED_DIRECT_INFERENCE";
 
 /// Auth-profile storage key for a slug-keyed provider.
 ///
@@ -139,7 +144,16 @@ pub fn create_chat_provider_from_string(
     // explicitly with tempdir-backed auth profiles.
     #[cfg(not(test))]
     {
-        verify_session_active(config)?;
+        if self_hosted_direct_inference_enabled() {
+            log::info!(
+                "[providers][chat-factory] self-hosted direct inference enabled — \
+                 skipping OpenHuman backend session gate role={} provider={}",
+                role,
+                p
+            );
+        } else {
+            verify_session_active(config)?;
+        }
     }
 
     if let Some(model_with_temp) = p.strip_prefix(OLLAMA_PROVIDER_PREFIX) {
@@ -231,6 +245,21 @@ fn make_openhuman_backend(config: &Config) -> anyhow::Result<(Box<dyn Provider>,
         &options,
     ));
     Ok((p, model))
+}
+
+pub(crate) fn self_hosted_direct_inference_enabled_from(raw: Option<&str>) -> bool {
+    matches!(
+        raw.map(str::trim).map(str::to_ascii_lowercase).as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
+}
+
+fn self_hosted_direct_inference_enabled() -> bool {
+    self_hosted_direct_inference_enabled_from(
+        std::env::var(SELF_HOSTED_DIRECT_INFERENCE_ENV_VAR)
+            .ok()
+            .as_deref(),
+    )
 }
 
 /// Verify the user has an active OpenHuman backend session.
@@ -436,12 +465,53 @@ pub fn lookup_key_for_slug(slug: &str, config: &Config) -> anyhow::Result<String
             )
         })?
         .unwrap_or_default();
+    if !key.is_empty() {
+        log::debug!(
+            "[providers][chat-factory] auth lookup slug={} key_present=true (legacy)",
+            slug,
+        );
+        return Ok(key);
+    }
+
+    let env_key = lookup_env_key_for_slug(slug).unwrap_or_default();
     log::debug!(
-        "[providers][chat-factory] auth lookup slug={} key_present={}",
+        "[providers][chat-factory] auth lookup slug={} key_present={} source={}",
         slug,
-        !key.is_empty()
+        !env_key.is_empty(),
+        if env_key.is_empty() { "none" } else { "env" }
     );
-    Ok(key)
+    Ok(env_key)
+}
+
+fn lookup_env_key_for_slug(slug: &str) -> Option<String> {
+    let sanitized = slug
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let mut candidates = vec![
+        format!("OPENHUMAN_PROVIDER_{sanitized}_API_KEY"),
+        format!("OPENHUMAN_{sanitized}_API_KEY"),
+    ];
+    match slug {
+        "openrouter" => candidates.push("OPENROUTER_API_KEY".to_string()),
+        "openai" => candidates.push("OPENAI_API_KEY".to_string()),
+        "anthropic" => candidates.push("ANTHROPIC_API_KEY".to_string()),
+        "deepseek" => candidates.push("DEEPSEEK_API_KEY".to_string()),
+        _ => {}
+    }
+
+    candidates.into_iter().find_map(|name| {
+        std::env::var(&name)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
 }
 
 /// Build an `OpenAiCompatibleProvider` with the given auth style.

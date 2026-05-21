@@ -78,6 +78,50 @@ fn parse_env_bool(name: &str, raw: &str) -> Option<bool> {
     }
 }
 
+fn first_non_empty_env<E: EnvLookup + ?Sized>(env: &E, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        env.get(key)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+fn ensure_env_cloud_provider<E: EnvLookup + ?Sized>(
+    config: &mut Config,
+    slug: &str,
+    label: &str,
+    endpoint: &str,
+    auth_style: super::cloud_providers::AuthStyle,
+    env: &E,
+    key_env_names: &[&str],
+) {
+    if first_non_empty_env(env, key_env_names).is_none() {
+        return;
+    }
+    if config
+        .cloud_providers
+        .iter()
+        .any(|provider| provider.slug == slug)
+    {
+        return;
+    }
+    tracing::info!(
+        slug,
+        endpoint,
+        "[config] seeding cloud provider from environment API-key presence"
+    );
+    config
+        .cloud_providers
+        .push(super::cloud_providers::CloudProviderCreds {
+            id: format!("env_{slug}"),
+            slug: slug.to_string(),
+            label: label.to_string(),
+            endpoint: endpoint.to_string(),
+            auth_style,
+            ..Default::default()
+        });
+}
+
 const ACTIVE_WORKSPACE_STATE_FILE: &str = "active_workspace.toml";
 static WARNED_WORLD_READABLE_CONFIGS: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
 
@@ -1013,6 +1057,88 @@ impl Config {
                 let (_, workspace_dir) =
                     resolve_config_dir_for_workspace(&PathBuf::from(workspace));
                 self.workspace_dir = workspace_dir;
+            }
+        }
+
+        ensure_env_cloud_provider(
+            self,
+            "openrouter",
+            "OpenRouter",
+            "https://openrouter.ai/api/v1",
+            super::cloud_providers::AuthStyle::Bearer,
+            env,
+            &[
+                "OPENHUMAN_PROVIDER_OPENROUTER_API_KEY",
+                "OPENHUMAN_OPENROUTER_API_KEY",
+                "OPENROUTER_API_KEY",
+            ],
+        );
+        ensure_env_cloud_provider(
+            self,
+            "openai",
+            "OpenAI",
+            "https://api.openai.com/v1",
+            super::cloud_providers::AuthStyle::Bearer,
+            env,
+            &[
+                "OPENHUMAN_PROVIDER_OPENAI_API_KEY",
+                "OPENHUMAN_OPENAI_API_KEY",
+                "OPENAI_API_KEY",
+            ],
+        );
+        ensure_env_cloud_provider(
+            self,
+            "anthropic",
+            "Anthropic",
+            "https://api.anthropic.com/v1",
+            super::cloud_providers::AuthStyle::Anthropic,
+            env,
+            &[
+                "OPENHUMAN_PROVIDER_ANTHROPIC_API_KEY",
+                "OPENHUMAN_ANTHROPIC_API_KEY",
+                "ANTHROPIC_API_KEY",
+            ],
+        );
+        ensure_env_cloud_provider(
+            self,
+            "deepseek",
+            "DeepSeek",
+            "https://api.deepseek.com/v1",
+            super::cloud_providers::AuthStyle::Bearer,
+            env,
+            &[
+                "OPENHUMAN_PROVIDER_DEEPSEEK_API_KEY",
+                "OPENHUMAN_DEEPSEEK_API_KEY",
+                "DEEPSEEK_API_KEY",
+            ],
+        );
+
+        let apply_provider_override = |slot: &mut Option<String>, env_name: &str| {
+            if let Some(raw) = env.get(env_name) {
+                let trimmed = raw.trim();
+                if !trimmed.is_empty() {
+                    *slot = Some(trimmed.to_string());
+                }
+            }
+        };
+        apply_provider_override(&mut self.chat_provider, "OPENHUMAN_CHAT_PROVIDER");
+        apply_provider_override(&mut self.reasoning_provider, "OPENHUMAN_REASONING_PROVIDER");
+        apply_provider_override(&mut self.agentic_provider, "OPENHUMAN_AGENTIC_PROVIDER");
+        apply_provider_override(&mut self.coding_provider, "OPENHUMAN_CODING_PROVIDER");
+        apply_provider_override(&mut self.memory_provider, "OPENHUMAN_MEMORY_PROVIDER");
+        apply_provider_override(
+            &mut self.embeddings_provider,
+            "OPENHUMAN_EMBEDDINGS_PROVIDER",
+        );
+        apply_provider_override(&mut self.heartbeat_provider, "OPENHUMAN_HEARTBEAT_PROVIDER");
+        apply_provider_override(&mut self.learning_provider, "OPENHUMAN_LEARNING_PROVIDER");
+        apply_provider_override(
+            &mut self.subconscious_provider,
+            "OPENHUMAN_SUBCONSCIOUS_PROVIDER",
+        );
+        if let Some(raw) = env.get("OPENHUMAN_CHAT_ONBOARDING_COMPLETED") {
+            if let Some(value) = parse_env_bool("OPENHUMAN_CHAT_ONBOARDING_COMPLETED", &raw) {
+                self.chat_onboarding_completed = value;
             }
         }
 

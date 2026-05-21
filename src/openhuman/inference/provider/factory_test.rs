@@ -4,6 +4,24 @@ use crate::openhuman::config::Config;
 use crate::openhuman::credentials::AuthService;
 use tempfile::TempDir;
 
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn with_env_var<F: FnOnce()>(key: &str, value: &str, f: F) {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let previous = std::env::var(key).ok();
+    unsafe {
+        std::env::set_var(key, value);
+    }
+    f();
+    unsafe {
+        if let Some(previous) = previous {
+            std::env::set_var(key, previous);
+        } else {
+            std::env::remove_var(key);
+        }
+    }
+}
+
 fn config_with_providers(providers: Vec<CloudProviderCreds>) -> Config {
     let mut c = Config::default();
     c.cloud_providers = providers;
@@ -270,9 +288,11 @@ fn missing_slug_for_openai_gives_clear_error() {
 #[tokio::test]
 async fn cloud_provider_without_stored_key_fails_with_actionable_error() {
     let tmp = TempDir::new().expect("tempdir");
-    let config = config_with_providers_in_tempdir(&tmp, vec![openai_entry("p_oai", "openai")]);
-    let (provider, model) = create_chat_provider_from_string("reasoning", "openai:gpt-4o", &config)
-        .expect("provider should build without eagerly requiring credentials");
+    let config =
+        config_with_providers_in_tempdir(&tmp, vec![openai_entry("p_no_key", "no-key-provider")]);
+    let (provider, model) =
+        create_chat_provider_from_string("reasoning", "no-key-provider:gpt-4o", &config)
+            .expect("provider should build without eagerly requiring credentials");
 
     let err = provider
         .chat_with_system(None, "hello", &model, 0.0)
@@ -433,6 +453,48 @@ fn verify_session_active_passes_when_session_token_present() {
     assert!(
         verify_session_active(&config).is_ok(),
         "should pass when session token exists",
+    );
+}
+
+#[test]
+fn self_hosted_direct_inference_flag_parses_truthy_values() {
+    for raw in ["1", "true", "TRUE", "yes", "on"] {
+        assert!(
+            self_hosted_direct_inference_enabled_from(Some(raw)),
+            "expected {raw:?} to enable self-hosted direct inference"
+        );
+    }
+    for raw in ["", "0", "false", "no", "off", "garbage"] {
+        assert!(
+            !self_hosted_direct_inference_enabled_from(Some(raw)),
+            "expected {raw:?} to leave self-hosted direct inference disabled"
+        );
+    }
+    assert!(!self_hosted_direct_inference_enabled_from(None));
+}
+
+#[test]
+fn lookup_key_for_slug_uses_namespaced_env_fallback() {
+    let tmp = TempDir::new().expect("tempdir");
+    let config = config_with_providers_in_tempdir(
+        &tmp,
+        vec![CloudProviderCreds {
+            id: "p_openrouter".to_string(),
+            slug: "openrouter".to_string(),
+            label: "OpenRouter".to_string(),
+            endpoint: "https://openrouter.ai/api/v1".to_string(),
+            auth_style: AuthStyle::Bearer,
+            ..Default::default()
+        }],
+    );
+
+    with_env_var(
+        "OPENHUMAN_PROVIDER_OPENROUTER_API_KEY",
+        "sk-or-env-test",
+        || {
+            let key = lookup_key_for_slug("openrouter", &config).expect("lookup key");
+            assert_eq!(key, "sk-or-env-test");
+        },
     );
 }
 

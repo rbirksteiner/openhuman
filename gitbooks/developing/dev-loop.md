@@ -90,6 +90,30 @@ That URL is valid until you stop the container. It changes on every
 `docker compose up` (quick-tunnel, no Cloudflare account required). For a
 stable URL, create a named tunnel with `cloudflared tunnel create`.
 
+### Self-hosted direct inference
+
+The Docker dev stack can run the agent loop without a tinyhumansai backend
+session by routing workload providers directly to OpenRouter/OpenAI/Anthropic
+and enabling the self-hosted direct-inference policy:
+
+```bash
+# in .env
+OPENHUMAN_SELF_HOSTED_DIRECT_INFERENCE=1
+OPENROUTER_API_KEY=sk-or-...
+OPENHUMAN_CHAT_PROVIDER=openrouter:openai/gpt-4o-mini
+OPENHUMAN_AGENTIC_PROVIDER=openrouter:openai/gpt-4o-mini
+OPENHUMAN_REASONING_PROVIDER=openrouter:anthropic/claude-3.5-sonnet
+OPENHUMAN_CODING_PROVIDER=openrouter:anthropic/claude-3.5-sonnet
+OPENHUMAN_MEMORY_PROVIDER=openrouter:openai/gpt-4o-mini
+OPENHUMAN_CHAT_ONBOARDING_COMPLETED=1
+```
+
+The self-hosted flag only bypasses the OpenHuman backend session gate for direct
+providers (`openrouter:*`, `openai:*`, `anthropic:*`, `ollama:*`, custom slugs).
+The `openhuman` provider still requires a real app-session JWT. If provider API
+keys are configured through Settings → AI → LLM instead, the same routing fields
+are used; the env vars are just a container-friendly bootstrap path.
+
 ### ElevenLabs dashboard setup
 
 In the [ElevenLabs agent dashboard](https://elevenlabs.io/app/conversational-ai):
