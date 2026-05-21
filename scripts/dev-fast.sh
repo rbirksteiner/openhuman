@@ -57,8 +57,14 @@ fi
 # Dedicated workspace so the desktop app's `~/.openhuman` config is not
 # disturbed and quick experiments don't pollute long-running state. Override
 # by exporting OPENHUMAN_WORKSPACE before running.
-export OPENHUMAN_WORKSPACE="${OPENHUMAN_WORKSPACE:-$HOME/.openhuman-dev-fast}"
+export OPENHUMAN_WORKSPACE="${OPENHUMAN_WORKSPACE:-$HOME/.openhuman}"
 export OPENHUMAN_CORE_PORT="${OPENHUMAN_CORE_PORT:-7788}"
+
+# By default reuse the desktop app's workspace at ~/.openhuman so dev-fast
+# inherits your existing login session, config, and memory. Override to
+# isolate experiments — but DO NOT run dev-fast and `pnpm dev:app`
+# concurrently against the same workspace, the SQLite store will lock.
+#   OPENHUMAN_WORKSPACE=~/.openhuman-experiment pnpm dev:fast
 
 CORE_BIN="$ROOT_DIR/target/debug/openhuman-core"
 # The standalone core always writes its bearer token to
@@ -162,7 +168,7 @@ echo "[dev-fast] core token captured (${#TOKEN} chars)"
 # ── 4. Start Vite ────────────────────────────────────────────────────────────
 echo
 echo "================================================================"
-echo "  Open in your browser:  http://localhost:5173/#/human"
+echo "  Open in your browser:  http://localhost:1420/#/human"
 echo "  Core log:              $CORE_LOG  (tail -f to watch)"
 echo "  Ctrl-C here stops both Vite and the core."
 echo "================================================================"
