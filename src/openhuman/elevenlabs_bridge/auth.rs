@@ -47,9 +47,7 @@ pub fn configured_secret() -> Option<String> {
 /// pre-built 401 ready to be returned from the handler.
 pub fn verify_request(headers: &HeaderMap) -> Result<(), Response> {
     let Some(expected) = configured_secret() else {
-        tracing::warn!(
-            "[elevenlabs-bridge] {SECRET_ENV} not configured — rejecting request"
-        );
+        tracing::warn!("[elevenlabs-bridge] {SECRET_ENV} not configured — rejecting request");
         return Err(unauthorized("server_not_configured"));
     };
 
@@ -62,9 +60,7 @@ pub fn verify_request(headers: &HeaderMap) -> Result<(), Response> {
         tracing::trace!("[elevenlabs-bridge] auth ok");
         Ok(())
     } else {
-        tracing::warn!(
-            "[elevenlabs-bridge] auth failed — missing or wrong {SECRET_HEADER} header"
-        );
+        tracing::warn!("[elevenlabs-bridge] auth failed — missing or wrong {SECRET_HEADER} header");
         Err(unauthorized("invalid_secret"))
     }
 }

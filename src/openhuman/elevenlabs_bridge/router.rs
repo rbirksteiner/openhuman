@@ -37,7 +37,9 @@ async fn shared_secret_layer(req: Request, next: Next) -> Response {
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 
-async fn custom_llm_handler(body: Result<Json<CustomLlmRequest>, axum::extract::rejection::JsonRejection>) -> Response {
+async fn custom_llm_handler(
+    body: Result<Json<CustomLlmRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
     let Json(req) = match body {
         Ok(j) => j,
         Err(err) => return bad_request(&err.to_string()),

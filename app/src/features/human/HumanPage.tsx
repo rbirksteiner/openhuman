@@ -39,9 +39,7 @@ const HumanPage = () => {
   // the user has configured their own — that mismatch was the cause
   // of "my voice / overrides / language don't apply" because they were
   // set on a different agent than the one being connected to.
-  const envAgentId = (
-    import.meta.env.VITE_OPENHUMAN_VOICE_AGENT_ID as string | undefined
-  )?.trim();
+  const envAgentId = (import.meta.env.VITE_OPENHUMAN_VOICE_AGENT_ID as string | undefined)?.trim();
   const FALLBACK_AGENT_ID = 'agent_4801ks3631qxfe58x7wb80kha6jm';
   const [voiceAgentConfigAgentId, setVoiceAgentConfigAgentId] = useState<string | undefined>(
     undefined
@@ -74,15 +72,8 @@ const HumanPage = () => {
   // call in the lifetime of this page. The thread is voice-scoped so it
   // never collides with the user's text chat history.
   const [voiceThreadId] = useState(() => voiceThreadIdFor(null));
-  const clientTools = useMemo(
-    () => buildClientTools({ threadId: voiceThreadId }),
-    [voiceThreadId]
-  );
-  const agent = useConversationalAgent({
-    agentId,
-    voiceId: voiceAgentVoiceId,
-    clientTools,
-  });
+  const clientTools = useMemo(() => buildClientTools({ threadId: voiceThreadId }), [voiceThreadId]);
+  const agent = useConversationalAgent({ agentId, voiceId: voiceAgentVoiceId, clientTools });
 
   useEffect(() => {
     window.localStorage.setItem(SPEAK_REPLIES_KEY, speakReplies ? '1' : '0');

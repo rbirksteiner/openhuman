@@ -136,9 +136,7 @@ pub async fn rpc_auth_middleware(req: axum::extract::Request, next: Next) -> Res
 
     // CORS preflight and public utility paths bypass auth.
     let is_public_prefix = PUBLIC_PREFIXES.iter().any(|p| path.starts_with(p));
-    if req.method() == Method::OPTIONS
-        || PUBLIC_PATHS.contains(&path.as_str())
-        || is_public_prefix
+    if req.method() == Method::OPTIONS || PUBLIC_PATHS.contains(&path.as_str()) || is_public_prefix
     {
         return next.run(req).await;
     }

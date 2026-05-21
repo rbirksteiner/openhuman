@@ -47,9 +47,7 @@ pub fn is_postgres_enabled() -> bool {
 /// the feature flag before calling.
 pub async fn init_postgres() -> anyhow::Result<()> {
     if !is_postgres_enabled() {
-        log::debug!(
-            "[postgres_store] {STORAGE_BACKEND_ENV} is not 'postgres' — skipping init"
-        );
+        log::debug!("[postgres_store] {STORAGE_BACKEND_ENV} is not 'postgres' — skipping init");
         return Ok(());
     }
 
@@ -69,9 +67,7 @@ pub async fn init_postgres() -> anyhow::Result<()> {
         );
     }
 
-    log::info!(
-        "[postgres_store] connecting (url redacted for security)…"
-    );
+    log::info!("[postgres_store] connecting (url redacted for security)…");
 
     let (client, connection) = tokio_postgres::connect(&url, NoTls).await.map_err(|e| {
         anyhow::anyhow!(

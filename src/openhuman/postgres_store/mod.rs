@@ -26,4 +26,4 @@
 
 pub mod pool;
 
-pub use pool::{init_postgres, postgres_client, is_postgres_enabled};
+pub use pool::{init_postgres, is_postgres_enabled, postgres_client};

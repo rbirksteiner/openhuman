@@ -21,9 +21,7 @@ use tokio::sync::broadcast::Receiver;
 use uuid::Uuid;
 
 use crate::core::socketio::WebChannelEvent;
-use crate::openhuman::channels::providers::web::{
-    channel_web_chat, subscribe_web_channel_events,
-};
+use crate::openhuman::channels::providers::web::{channel_web_chat, subscribe_web_channel_events};
 use crate::openhuman::memory::ops::{doc_ingest, memory_query_namespace};
 use crate::openhuman::memory::{IngestDocParams, QueryNamespaceRequest};
 
@@ -67,16 +65,8 @@ pub async fn custom_llm_stream(req: CustomLlmRequest) -> Response {
     // receiver buffer when the orchestrator starts streaming.
     let rx = subscribe_web_channel_events();
 
-    if let Err(err) = channel_web_chat(
-        &client_id,
-        &thread_id,
-        &last_user,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await
+    if let Err(err) =
+        channel_web_chat(&client_id, &thread_id, &last_user, None, None, None, None).await
     {
         tracing::warn!(
             thread_id = %thread_id,
@@ -231,9 +221,7 @@ fn build_chunk_stream(
                     return state.pending.pop_front().map(|ev| (Ok(ev), state));
                 }
                 Ok(Ok(event)) => {
-                    if event.client_id != state.client_id
-                        || event.thread_id != state.thread_id
-                    {
+                    if event.client_id != state.client_id || event.thread_id != state.thread_id {
                         continue;
                     }
                     match event.event.as_str() {
@@ -391,11 +379,7 @@ pub async fn memory_recall(req: MemoryRecallRequest) -> Response {
                 error = %err,
                 "[elevenlabs-bridge] memory-recall failed"
             );
-            (
-                StatusCode::OK,
-                Json(json!({ "result": [], "error": err })),
-            )
-                .into_response()
+            (StatusCode::OK, Json(json!({ "result": [], "error": err }))).into_response()
         }
     }
 }

@@ -561,7 +561,10 @@ pub fn build_core_http_router(socketio_enabled: bool) -> Router {
         // Auth is handled inside the sub-router via X-ElevenLabs-Secret;
         // the paths must also be listed in PUBLIC_PATHS in core::auth so
         // the bearer-token middleware does not gate them first.
-        .nest("/elevenlabs", crate::openhuman::elevenlabs_bridge::build_elevenlabs_router())
+        .nest(
+            "/elevenlabs",
+            crate::openhuman::elevenlabs_bridge::build_elevenlabs_router(),
+        )
         .fallback(not_found_handler)
         .layer(middleware::from_fn(http_request_log_middleware))
         .layer(middleware::from_fn(crate::core::auth::rpc_auth_middleware))
@@ -848,9 +851,7 @@ async fn run_server_inner(
     // Postgres storage backend — connection plumbing (Phase 1).
     // Only active when OPENHUMAN_STORAGE_BACKEND=postgres.
     // SQLite / TOML paths are unchanged when the flag is absent.
-    if let Err(e) =
-        crate::openhuman::postgres_store::init_postgres().await
-    {
+    if let Err(e) = crate::openhuman::postgres_store::init_postgres().await {
         log::error!("[boot] postgres_store init failed: {e:#}");
     }
 
