@@ -3,10 +3,10 @@ import { Conversation } from '@elevenlabs/client';
 import debug from 'debug';
 
 import {
-  DISCONNECT_REASON,
-  INITIAL_CONVERSATIONAL_AGENT_STATE,
   type AgentEvent,
   type ConversationalAgentState,
+  DISCONNECT_REASON,
+  INITIAL_CONVERSATIONAL_AGENT_STATE,
   type SignedUrlResponse,
 } from './types';
 

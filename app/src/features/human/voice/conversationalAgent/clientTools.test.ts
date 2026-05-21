@@ -41,9 +41,7 @@ function makeFakeChat(): {
     lastSent: () => last,
     emit: (kind, event) => {
       for (const sub of subs) {
-        const handler = sub[kind] as
-          | ((e: typeof event) => void)
-          | undefined;
+        const handler = sub[kind] as ((e: typeof event) => void) | undefined;
         handler?.(event);
       }
     },
@@ -250,10 +248,7 @@ describe('buildClientTools — chat_with_openhuman', () => {
 describe('buildClientTools — recall_memory', () => {
   it('calls memory_query_namespace with the right params and returns JSON', async () => {
     const rpc = vi.fn().mockResolvedValue({ context: { entities: ['alice'] } });
-    const tools = buildClientTools({
-      threadId: 'voice-test',
-      callCoreRpc: rpc as never,
-    });
+    const tools = buildClientTools({ threadId: 'voice-test', callCoreRpc: rpc as never });
 
     const result = (await tools.recall_memory({ query: 'who is alice' })) as string;
     expect(rpc).toHaveBeenCalledWith({
@@ -280,10 +275,7 @@ describe('buildClientTools — recall_memory', () => {
 
   it('returns a structured error envelope when the RPC throws', async () => {
     const rpc = vi.fn().mockRejectedValue(new Error('boom'));
-    const tools = buildClientTools({
-      threadId: 'voice-test',
-      callCoreRpc: rpc as never,
-    });
+    const tools = buildClientTools({ threadId: 'voice-test', callCoreRpc: rpc as never });
     const result = (await tools.recall_memory({ query: 'q' })) as string;
     const parsed = JSON.parse(result);
     expect(parsed.ok).toBe(false);
@@ -292,10 +284,7 @@ describe('buildClientTools — recall_memory', () => {
 
   it('short-circuits on empty queries without RPC', async () => {
     const rpc = vi.fn();
-    const tools = buildClientTools({
-      threadId: 'voice-test',
-      callCoreRpc: rpc as never,
-    });
+    const tools = buildClientTools({ threadId: 'voice-test', callCoreRpc: rpc as never });
     const result = (await tools.recall_memory({ query: '' })) as string;
     expect(rpc).not.toHaveBeenCalled();
     expect(JSON.parse(result).ok).toBe(false);
@@ -305,10 +294,7 @@ describe('buildClientTools — recall_memory', () => {
 describe('buildClientTools — store_memory', () => {
   it('returns "saved" and calls memory_doc_ingest on success', async () => {
     const rpc = vi.fn().mockResolvedValue({});
-    const tools = buildClientTools({
-      threadId: 'voice-test',
-      callCoreRpc: rpc as never,
-    });
+    const tools = buildClientTools({ threadId: 'voice-test', callCoreRpc: rpc as never });
     const result = (await tools.store_memory({ note: 'remember the milk' })) as string;
     expect(result).toBe('saved');
     expect(rpc).toHaveBeenCalledTimes(1);
@@ -323,20 +309,14 @@ describe('buildClientTools — store_memory', () => {
 
   it('returns an error string when ingest fails', async () => {
     const rpc = vi.fn().mockRejectedValue(new Error('disk full'));
-    const tools = buildClientTools({
-      threadId: 'voice-test',
-      callCoreRpc: rpc as never,
-    });
+    const tools = buildClientTools({ threadId: 'voice-test', callCoreRpc: rpc as never });
     const result = (await tools.store_memory({ note: 'note' })) as string;
     expect(result).toMatch(/error: disk full/);
   });
 
   it('refuses to call RPC for empty notes', async () => {
     const rpc = vi.fn();
-    const tools = buildClientTools({
-      threadId: 'voice-test',
-      callCoreRpc: rpc as never,
-    });
+    const tools = buildClientTools({ threadId: 'voice-test', callCoreRpc: rpc as never });
     const result = (await tools.store_memory({ note: '' })) as string;
     expect(rpc).not.toHaveBeenCalled();
     expect(result).toMatch(/empty note/);

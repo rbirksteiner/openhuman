@@ -21,13 +21,13 @@
  */
 import debug from 'debug';
 
-import { callCoreRpc } from '../../../../services/coreRpcClient';
 import {
-  chatSend as defaultChatSend,
-  subscribeChatEvents as defaultSubscribeChatEvents,
   type ChatEventListeners,
   type ChatSendParams,
+  chatSend as defaultChatSend,
+  subscribeChatEvents as defaultSubscribeChatEvents,
 } from '../../../../services/chatService';
+import { callCoreRpc } from '../../../../services/coreRpcClient';
 
 const log = debug('openhuman:voice-agent:tools');
 
@@ -127,7 +127,8 @@ export function buildClientTools(deps: ClientToolsDeps): VoiceClientTools {
   const threadId = deps.threadId;
   // `''` (explicit empty) means "fall back to the orchestrator's configured
   // tier model" — useful for benchmarking. `undefined` picks the default.
-  const modelOverride = deps.modelOverride === '' ? undefined : (deps.modelOverride ?? DEFAULT_VOICE_MODEL);
+  const modelOverride =
+    deps.modelOverride === '' ? undefined : (deps.modelOverride ?? DEFAULT_VOICE_MODEL);
 
   return {
     /**
@@ -296,7 +297,11 @@ async function runChatBridge(args: ChatBridgeArgs): Promise<string> {
     });
 
     timeoutHandle = setTimeout(() => {
-      log('chat bridge timed out after %dms — resolving with %d buffered chars', timeoutMs, buffered.length);
+      log(
+        'chat bridge timed out after %dms — resolving with %d buffered chars',
+        timeoutMs,
+        buffered.length
+      );
       settle(buffered || 'sorry, I had trouble thinking that one through');
     }, timeoutMs);
 

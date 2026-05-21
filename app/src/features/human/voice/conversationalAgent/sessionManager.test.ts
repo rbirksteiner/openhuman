@@ -169,10 +169,7 @@ describe('ConversationalAgentSessionManager', () => {
     let lastOpts: Record<string, unknown> | null = null;
     const startSession = (async (opts: Record<string, unknown>) => {
       lastOpts = opts;
-      return {
-        endSession: vi.fn().mockResolvedValue(undefined),
-        setMicMuted: vi.fn(),
-      };
+      return { endSession: vi.fn().mockResolvedValue(undefined), setMicMuted: vi.fn() };
     }) as never;
     const tools = { chat_with_openhuman: async () => 'hi' };
     const manager = new ConversationalAgentSessionManager({
@@ -190,10 +187,7 @@ describe('ConversationalAgentSessionManager', () => {
     let lastOpts: Record<string, unknown> | null = null;
     const startSession = (async (opts: Record<string, unknown>) => {
       lastOpts = opts;
-      return {
-        endSession: vi.fn().mockResolvedValue(undefined),
-        setMicMuted: vi.fn(),
-      };
+      return { endSession: vi.fn().mockResolvedValue(undefined), setMicMuted: vi.fn() };
     }) as never;
     const manager = new ConversationalAgentSessionManager({
       fetchSignedUrl: async () => ({ signedUrl: 'wss://t', expiresAt: 1 }),
@@ -209,10 +203,7 @@ describe('ConversationalAgentSessionManager', () => {
     let lastOpts: Record<string, unknown> | null = null;
     const startSession = (async (opts: Record<string, unknown>) => {
       lastOpts = opts;
-      return {
-        endSession: vi.fn().mockResolvedValue(undefined),
-        setMicMuted: vi.fn(),
-      };
+      return { endSession: vi.fn().mockResolvedValue(undefined), setMicMuted: vi.fn() };
     }) as never;
     const initial = { a: async () => '1' };
     const updated = { b: async () => '2' };

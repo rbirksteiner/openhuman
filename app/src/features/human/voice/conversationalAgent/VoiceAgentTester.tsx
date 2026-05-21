@@ -42,8 +42,7 @@ export function VoiceAgentTester() {
     agent.setMuted(!agent.isMuted);
   }, [agent]);
 
-  const isLive =
-    agent.state.lifecycle === 'connected' || agent.state.lifecycle === 'connecting';
+  const isLive = agent.state.lifecycle === 'connected' || agent.state.lifecycle === 'connecting';
 
   const statusLabel = labelForLifecycle(agent.state, isLive);
 
@@ -57,8 +56,7 @@ export function VoiceAgentTester() {
             isLive
               ? 'bg-rose-500 hover:bg-rose-600 text-white'
               : 'bg-ocean-500 hover:bg-ocean-600 text-white'
-          }`}
-        >
+          }`}>
           {isLive ? 'Stop voice mode' : 'Try voice mode'}
         </button>
         {isLive && (
@@ -69,8 +67,7 @@ export function VoiceAgentTester() {
               agent.isMuted
                 ? 'bg-amber-100 border-amber-300 text-amber-900 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-700'
                 : 'bg-stone-100 border-stone-300 text-stone-700 dark:bg-neutral-800 dark:text-neutral-200 dark:border-neutral-700'
-            }`}
-          >
+            }`}>
             {agent.isMuted ? 'Unmute' : 'Mute'}
           </button>
         )}
@@ -107,7 +104,7 @@ export function VoiceAgentTester() {
 
 function labelForLifecycle(
   state: ReturnType<typeof useConversationalAgent>['state'],
-  isLive: boolean,
+  isLive: boolean
 ): string {
   if (state.lifecycle === 'connecting') return 'Connecting…';
   if (state.lifecycle === 'error') return 'Error';
@@ -122,7 +119,7 @@ function dotColor(
   lifecycle: ReturnType<typeof useConversationalAgent>['state']['lifecycle'],
   isLive: boolean,
   isSpeaking: boolean,
-  isListening: boolean,
+  isListening: boolean
 ): string {
   if (lifecycle === 'error') return 'bg-rose-500';
   if (lifecycle === 'connecting') return 'bg-amber-400 animate-pulse';
